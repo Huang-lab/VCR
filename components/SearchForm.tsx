@@ -1,9 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import type { Assembly } from "@/lib/hgvs/types";
 
 interface Props {
+  /**
+   * Controlled inputs. The page owns these and keeps them in step with the
+   * URL, so a shared link, a typed query and a back/forward navigation all
+   * agree on what is being searched. Mirroring the URL into local state here
+   * let the two drift: navigating back to a search on a different genome build
+   * left the dropdown showing the build from the previous search, labelling the
+   * displayed coordinates with the wrong assembly.
+   */
+  query: string;
+  assembly: Assembly;
+  onQueryChange: (query: string) => void;
+  onAssemblyChange: (assembly: Assembly) => void;
   onSearch: (query: string, assembly: Assembly) => void;
   disabled: boolean;
 }
@@ -16,10 +27,14 @@ const EXAMPLES = [
   "KRAS G12D",
 ];
 
-export function SearchForm({ onSearch, disabled }: Props) {
-  const [query, setQuery] = useState("");
-  const [assembly, setAssembly] = useState<Assembly>("GRCh38");
-
+export function SearchForm({
+  query,
+  assembly,
+  onQueryChange,
+  onAssemblyChange,
+  onSearch,
+  disabled,
+}: Props) {
   return (
     <>
       <form
@@ -33,13 +48,13 @@ export function SearchForm({ onSearch, disabled }: Props) {
           type="text"
           placeholder="e.g. BRAF p.V600E"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => onQueryChange(e.target.value)}
           autoFocus
           disabled={disabled}
         />
         <select
           value={assembly}
-          onChange={(e) => setAssembly(e.target.value as Assembly)}
+          onChange={(e) => onAssemblyChange(e.target.value as Assembly)}
           disabled={disabled}
           aria-label="Genome assembly"
         >
@@ -47,7 +62,7 @@ export function SearchForm({ onSearch, disabled }: Props) {
           <option value="GRCh37">GRCh37 / hg19</option>
         </select>
         <button type="submit" disabled={disabled || !query.trim()}>
-          Search PubMed
+          {disabled ? "Searching…" : "Search"}
         </button>
       </form>
       <p className="examples">
@@ -55,7 +70,7 @@ export function SearchForm({ onSearch, disabled }: Props) {
         {EXAMPLES.map((ex, i) => (
           <span key={ex}>
             {i > 0 && " "}
-            <code onClick={() => setQuery(ex)}>{ex}</code>
+            <code onClick={() => onQueryChange(ex)}>{ex}</code>
           </span>
         ))}
       </p>

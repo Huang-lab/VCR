@@ -13,7 +13,7 @@ import {
   EntrezConfig,
   EntrezDiagnostics,
   baseParams,
-  delayMs,
+  entrezFetchText,
   esearchTermWithStatus,
   esummaryBatchWithDiagnostics,
   searchPhrasesInDbWithDiagnostics,
@@ -99,7 +99,6 @@ export async function searchClinvarForVariantsDetailed(
     let primaryIdCount = 0;
     const term = buildGeneProteinQuery(opts.gene, opts.proteinForms);
     if (term) {
-      await new Promise((r) => setTimeout(r, delayMs(cfg)));
       const res = await esearchTermWithStatus("clinvar", term, cfg);
       if (res.ok) {
         primaryIdCount = res.ids.length;
@@ -118,8 +117,10 @@ export async function searchClinvarForVariantsDetailed(
      * the moment any term returns at least one hit.
      */
     if (primaryIdCount === 0) {
+      // Sequential and short-circuiting by design: each query is a fallback
+      // for the previous one, so we stop at the first that returns anything
+      // rather than spending quota on all of them.
       for (const fallback of buildGeneProteinQueries(opts.gene, opts.proteinForms)) {
-        await new Promise((r) => setTimeout(r, delayMs(cfg)));
         const res = await esearchTermWithStatus("clinvar", fallback, cfg);
         if (res.ok && res.ids.length > 0) {
           for (const id of res.ids) {
@@ -230,30 +231,36 @@ async function elinkClinvarRecords(
   rsIds: { variant: string; rsNum: number }[],
   cfg: EntrezConfig,
 ): Promise<ClinvarRecord[]> {
-  const d = delayMs(cfg);
+  // 1. elink: dbSNP → ClinVar, one call per rsID so we can attribute matchedBy.
+  //    These are independent, so they overlap. `entrezFetchText` takes its own
+  //    rate-limit slot, so plain Promise.all is what we want here — wrapping it
+  //    in mapWithLimiter would hold an outer slot while waiting for an inner
+  //    one and deadlock once the rsID count reached the concurrency ceiling.
+  const xmls = await Promise.all(
+    rsIds.map(({ rsNum }) => {
+      const params = baseParams(cfg);
+      params.set("dbfrom", "snp");
+      params.set("db", "clinvar");
+      params.set("id", String(rsNum));
+      params.set("retmode", "xml");
+      return entrezFetchText(`${EUTILS}/elink.fcgi?${params.toString()}`, cfg);
+    }),
+  );
 
-  // 1. elink: dbSNP → ClinVar (one call per rsID to track matchedBy)
+  // Fold in rsID order so a variation ID linked from several rsIDs is
+  // attributed deterministically.
   const varIdToRsVariant = new Map<number, string>();
-  for (const { variant, rsNum } of rsIds) {
-    const params = baseParams(cfg);
-    params.set("dbfrom", "snp");
-    params.set("db", "clinvar");
-    params.set("id", String(rsNum));
-    params.set("retmode", "xml");
-    const url = `${EUTILS}/elink.fcgi?${params.toString()}`;
-    const res = await fetch(url);
-    if (!res.ok) continue;
-    const xml = await res.text();
+  for (let i = 0; i < xmls.length; i++) {
+    const xml = xmls[i];
+    if (!xml) continue;
+    const variant = rsIds[i].variant;
     // Extract <Id> elements inside <LinkSetDb> (they are variation IDs)
-    const lsdb = xml.match(/<LinkSetDb>[\s\S]*?<\/LinkSetDb>/g);
-    if (lsdb) {
-      for (const block of lsdb) {
-        for (const m of block.matchAll(/<Id>(\d+)<\/Id>/g)) {
-          varIdToRsVariant.set(Number(m[1]), variant);
-        }
+    for (const block of xml.match(/<LinkSetDb>[\s\S]*?<\/LinkSetDb>/g) ?? []) {
+      for (const m of block.matchAll(/<Id>(\d+)<\/Id>/g)) {
+        const id = Number(m[1]);
+        if (!varIdToRsVariant.has(id)) varIdToRsVariant.set(id, variant);
       }
     }
-    await new Promise((r) => setTimeout(r, d));
   }
 
   if (varIdToRsVariant.size === 0) return [];
@@ -265,10 +272,11 @@ async function elinkClinvarRecords(
   params.set("rettype", "vcv");
   params.set("id", variationIds.join(","));
   // is_variationid is a flag (no value) telling ClinVar the IDs are variation IDs
-  const url = `${EUTILS}/efetch.fcgi?${params.toString()}&is_variationid`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const xml = await res.text();
+  const xml = await entrezFetchText(
+    `${EUTILS}/efetch.fcgi?${params.toString()}&is_variationid`,
+    cfg,
+  );
+  if (!xml) return [];
 
   // 3. Parse each <VariationArchive> element
   return parseVcvXml(xml, varIdToRsVariant);

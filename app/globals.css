@@ -399,3 +399,53 @@ code:focus-visible {
 .sig-badge.sig-lbenign  { background: var(--sig-lbenign-bg); color: var(--sig-lbenign-fg); border: 1px solid var(--sig-lbenign-border); }
 .sig-badge.sig-benign   { background: var(--sig-benign-bg); color: var(--sig-benign-fg); border: 1px solid var(--sig-benign-border); }
 .sig-badge.sig-other    { background: transparent; color: var(--muted); border: 1px solid var(--muted); }
+
+/* Export / share controls, shown above the results once a search resolves. */
+.export-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.export-bar .export-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+
+.export-bar button {
+  padding: 7px 12px;
+  background: var(--panel);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.export-bar button:hover:not(:disabled) {
+  border-color: var(--accent);
+  filter: brightness(1.04);
+}
+
+.export-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Previous results while a new search runs: still readable, visibly not current. */
+.results-stale {
+  opacity: 0.45;
+  transition: opacity 120ms ease-out;
+  pointer-events: none;
+}
