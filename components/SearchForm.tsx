@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Assembly } from "@/lib/hgvs/types";
 
 interface Props {
   onSearch: (query: string, assembly: Assembly) => void;
   disabled: boolean;
+  /** Prefill from a shared link so the form reflects the URL being viewed. */
+  initialQuery?: string;
+  initialAssembly?: Assembly;
 }
 
 const EXAMPLES = [
@@ -16,9 +19,22 @@ const EXAMPLES = [
   "KRAS G12D",
 ];
 
-export function SearchForm({ onSearch, disabled }: Props) {
-  const [query, setQuery] = useState("");
-  const [assembly, setAssembly] = useState<Assembly>("GRCh38");
+export function SearchForm({
+  onSearch,
+  disabled,
+  initialQuery = "",
+  initialAssembly = "GRCh38",
+}: Props) {
+  const [query, setQuery] = useState(initialQuery);
+  const [assembly, setAssembly] = useState<Assembly>(initialAssembly);
+
+  // A shared link is read after mount, so adopt it when it arrives.
+  useEffect(() => {
+    if (initialQuery) setQuery(initialQuery);
+  }, [initialQuery]);
+  useEffect(() => {
+    setAssembly(initialAssembly);
+  }, [initialAssembly]);
 
   return (
     <>
@@ -47,7 +63,7 @@ export function SearchForm({ onSearch, disabled }: Props) {
           <option value="GRCh37">GRCh37 / hg19</option>
         </select>
         <button type="submit" disabled={disabled || !query.trim()}>
-          Search PubMed
+          {disabled ? "Searching…" : "Search"}
         </button>
       </form>
       <p className="examples">
