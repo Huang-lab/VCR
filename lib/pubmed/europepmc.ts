@@ -6,7 +6,8 @@
  * searches do not compete for the same budget.
  */
 
-import { europePmcLimiter, mapWithLimiter } from "@/lib/entrez/scheduler";
+import { europePmcLimiter, envNumber, mapWithLimiter } from "@/lib/entrez/scheduler";
+import { retryWaitMs } from "@/lib/entrez/base";
 
 export interface EuropePmcDiagnostics {
   phraseCount: number;
@@ -49,7 +50,7 @@ interface EuropePmcResponse {
 }
 
 const EUROPE_PMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/search";
-const REQUEST_TIMEOUT_MS = Number(process.env.EUROPEPMC_TIMEOUT_MS ?? 15000);
+const REQUEST_TIMEOUT_MS = envNumber("EUROPEPMC_TIMEOUT_MS", 15000);
 const RETRIABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 
 function sleep(ms: number): Promise<void> {
@@ -105,12 +106,7 @@ async function fetchEuropePmc(phrase: string): Promise<FetchOutcome> {
     if (!RETRIABLE_STATUS.has(res.status) || attempt === maxAttempts) {
       return { ok: false, status: res.status, hits: [] };
     }
-    const retryAfter = Number(res.headers.get("Retry-After"));
-    const waitMs =
-      Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : 300 * Math.pow(2, attempt - 1);
-    await sleep(waitMs);
+    await sleep(retryWaitMs(res.headers.get("Retry-After"), attempt));
   }
 
   return { ok: false, status: 599, hits: [] };

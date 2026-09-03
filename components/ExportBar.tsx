@@ -27,17 +27,29 @@ interface Props {
   };
 }
 
-/** Hand the browser a generated file without leaking the object URL. */
+/**
+ * Hand the browser a generated file without leaking the object URL.
+ *
+ * The leading U+FEFF is for Excel on Windows, which ignores the charset in the
+ * MIME type when opening a local file and falls back to the system code page —
+ * without the BOM, an author name like "Müller" lands in a supplementary table
+ * as "MÃ¼ller". It is written here rather than in `toCsv` so the serializer
+ * stays byte-exact for programmatic callers.
+ */
 function downloadText(filename: string, text: string, mime = "text/csv;charset=utf-8") {
-  const blob = new Blob([text], { type: mime });
+  const blob = new Blob([`\ufeff${text}`], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // Deferred by a tick: Firefox and Safari read the blob asynchronously after
+  // the click, so revoking in the same task cancels the download silently.
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 0);
 }
 
 function variantRows(groups: Props["groups"]): CsvVariantRow[] {

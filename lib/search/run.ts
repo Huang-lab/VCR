@@ -17,6 +17,7 @@ import {
   Article,
   SourceStatus,
   buildStatusFromDiagnostics,
+  failedSourceStatus,
   mergeArticles,
 } from "@/lib/search/results";
 
@@ -54,6 +55,25 @@ export function skippedPubmedPayload(message: string): PubmedPayload {
       likelyPartial: false,
       message,
     },
+  };
+}
+
+/** An empty payload for a source whose search threw, so the rest still renders. */
+export function failedPubmedPayload(): PubmedPayload {
+  return { count: 0, articles: [], status: failedSourceStatus("PubMed") };
+}
+
+export function failedClinvarPayload(
+  gene: string | undefined,
+  proteinForms: string[],
+): ClinvarPayload {
+  return {
+    count: 0,
+    unfilteredCount: 0,
+    gene,
+    proteinForms,
+    status: failedSourceStatus("ClinVar"),
+    records: [],
   };
 }
 

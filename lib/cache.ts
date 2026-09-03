@@ -3,19 +3,21 @@
  * dev works without any external deps.
  */
 
+import { envNumber } from "@/lib/entrez/scheduler";
+
 const BASE_URL = process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
 const enabled = !!(BASE_URL && TOKEN);
 
 /** Give up on a cache round-trip rather than delaying the response. */
-const CACHE_TIMEOUT_MS = Number(process.env.CACHE_TIMEOUT_MS ?? 2000);
+const CACHE_TIMEOUT_MS = envNumber("CACHE_TIMEOUT_MS", 2000);
 
 /**
  * Skip writes above this size. Upstash rejects oversized request bodies, and a
  * response this large is cheaper to recompute than to ship twice.
  */
-const MAX_VALUE_BYTES = Number(process.env.CACHE_MAX_VALUE_BYTES ?? 900_000);
+const MAX_VALUE_BYTES = envNumber("CACHE_MAX_VALUE_BYTES", 900_000);
 
 export async function cacheGet<T>(key: string): Promise<T | null> {
   if (!enabled) return null;

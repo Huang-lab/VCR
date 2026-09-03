@@ -1,14 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import type { Assembly } from "@/lib/hgvs/types";
 
 interface Props {
+  /**
+   * Controlled inputs. The page owns these and keeps them in step with the
+   * URL, so a shared link, a typed query and a back/forward navigation all
+   * agree on what is being searched. Mirroring the URL into local state here
+   * let the two drift: navigating back to a search on a different genome build
+   * left the dropdown showing the build from the previous search, labelling the
+   * displayed coordinates with the wrong assembly.
+   */
+  query: string;
+  assembly: Assembly;
+  onQueryChange: (query: string) => void;
+  onAssemblyChange: (assembly: Assembly) => void;
   onSearch: (query: string, assembly: Assembly) => void;
   disabled: boolean;
-  /** Prefill from a shared link so the form reflects the URL being viewed. */
-  initialQuery?: string;
-  initialAssembly?: Assembly;
 }
 
 const EXAMPLES = [
@@ -20,22 +28,13 @@ const EXAMPLES = [
 ];
 
 export function SearchForm({
+  query,
+  assembly,
+  onQueryChange,
+  onAssemblyChange,
   onSearch,
   disabled,
-  initialQuery = "",
-  initialAssembly = "GRCh38",
 }: Props) {
-  const [query, setQuery] = useState(initialQuery);
-  const [assembly, setAssembly] = useState<Assembly>(initialAssembly);
-
-  // A shared link is read after mount, so adopt it when it arrives.
-  useEffect(() => {
-    if (initialQuery) setQuery(initialQuery);
-  }, [initialQuery]);
-  useEffect(() => {
-    setAssembly(initialAssembly);
-  }, [initialAssembly]);
-
   return (
     <>
       <form
@@ -49,13 +48,13 @@ export function SearchForm({
           type="text"
           placeholder="e.g. BRAF p.V600E"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => onQueryChange(e.target.value)}
           autoFocus
           disabled={disabled}
         />
         <select
           value={assembly}
-          onChange={(e) => setAssembly(e.target.value as Assembly)}
+          onChange={(e) => onAssemblyChange(e.target.value as Assembly)}
           disabled={disabled}
           aria-label="Genome assembly"
         >
@@ -71,7 +70,7 @@ export function SearchForm({
         {EXAMPLES.map((ex, i) => (
           <span key={ex}>
             {i > 0 && " "}
-            <code onClick={() => setQuery(ex)}>{ex}</code>
+            <code onClick={() => onQueryChange(ex)}>{ex}</code>
           </span>
         ))}
       </p>

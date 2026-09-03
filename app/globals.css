@@ -442,3 +442,10 @@ code:focus-visible {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Previous results while a new search runs: still readable, visibly not current. */
+.results-stale {
+  opacity: 0.45;
+  transition: opacity 120ms ease-out;
+  pointer-events: none;
+}

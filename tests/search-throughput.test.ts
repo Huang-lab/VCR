@@ -114,19 +114,29 @@ function peakRatePerSec(calls: CallRecord[], host: CallRecord["host"]): number {
 const phrases = (n: number) =>
   Array.from({ length: n }, (_, i) => `BRAF p.Val${600 + i}Glu`);
 
+const PACING_VARS = [
+  "NCBI_RATE_PER_SEC",
+  "NCBI_CONCURRENCY",
+  "NCBI_BURST",
+  "EUROPEPMC_RATE_PER_SEC",
+  "EUROPEPMC_CONCURRENCY",
+  "EUROPEPMC_BURST",
+] as const;
+
 describe("search throughput against a simulated upstream", () => {
   let calls: CallRecord[];
   let start = 0;
+  let savedEnv: Record<string, string | undefined> = {};
 
   beforeEach(async () => {
     vi.resetModules();
-    // Leave the rate settings unset so the test exercises production defaults.
-    delete process.env.NCBI_RATE_PER_SEC;
-    delete process.env.NCBI_CONCURRENCY;
-    delete process.env.NCBI_BURST;
-    delete process.env.EUROPEPMC_RATE_PER_SEC;
-    delete process.env.EUROPEPMC_CONCURRENCY;
-    delete process.env.EUROPEPMC_BURST;
+    // Unset the rate settings so the test exercises production defaults,
+    // remembering them so a developer's own values survive this file.
+    savedEnv = {};
+    for (const name of PACING_VARS) {
+      savedEnv[name] = process.env[name];
+      delete process.env[name];
+    }
     calls = [];
     start = Date.now();
     installUpstreamSimulator(calls, () => start);
@@ -135,6 +145,10 @@ describe("search throughput against a simulated upstream", () => {
   });
 
   afterEach(() => {
+    for (const [name, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

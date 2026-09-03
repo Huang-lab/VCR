@@ -17,6 +17,8 @@ import {
 } from "@/lib/search/terms";
 import {
   entrezConfigFromEnv,
+  failedClinvarPayload,
+  failedPubmedPayload,
   runClinvarSearch,
   runPubmedSearch,
   skippedPubmedPayload,
@@ -24,6 +26,16 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+/** Cache lifetime for a complete result. New publications land often enough. */
+const COMPLETE_TTL_SEC = 3600 * 6;
+
+/**
+ * Cache lifetime for a result that upstream reported as partial or
+ * rate-limited. Such a response tells the reader to retry shortly, so it must
+ * not be served for hours — but a short TTL still absorbs a refresh storm.
+ */
+const INCOMPLETE_TTL_SEC = 60;
 
 /**
  * One request that expands a mutation and searches every source.
@@ -46,6 +58,25 @@ interface Body {
 const VALID_ASSEMBLIES: Assembly[] = ["GRCh38", "GRCh37"];
 
 export async function POST(req: NextRequest) {
+  try {
+    return await handleSearch(req);
+  } catch (e) {
+    // Anything unexpected (an upstream client throwing, a VEP outage
+    // propagating out of canonicalizeMultiAssembly) would otherwise become an
+    // HTML 500 that the browser cannot parse as JSON, so the user sees a JSON
+    // syntax error instead of what went wrong.
+    console.error("[api/search] unhandled failure", e);
+    return NextResponse.json(
+      {
+        error:
+          "The search could not be completed because an upstream service failed. Please retry shortly.",
+      },
+      { status: 502 },
+    );
+  }
+}
+
+async function handleSearch(req: NextRequest) {
   const rl = await checkRateLimit(req);
   if (rl && !rl.success) {
     return NextResponse.json(
@@ -107,12 +138,22 @@ export async function POST(req: NextRequest) {
 
   // Both searches share this process's Entrez limiter, so the aggregate rate
   // stays within quota while their latencies overlap.
-  const [pubmed, clinvar] = await Promise.all([
+  //
+  // allSettled, not all: one source failing must not discard the other source
+  // and the expansion we already computed.
+  const [pubmedRes, clinvarRes] = await Promise.allSettled([
     blocked
       ? Promise.resolve(skippedPubmedPayload(blocked))
       : runPubmedSearch(pubmedTerms, cfg),
     runClinvarSearch(clinvarTerms, cfg, { gene, proteinForms }),
   ]);
+
+  const pubmed =
+    pubmedRes.status === "fulfilled" ? pubmedRes.value : failedPubmedPayload();
+  const clinvar =
+    clinvarRes.status === "fulfilled"
+      ? clinvarRes.value
+      : failedClinvarPayload(gene, proteinForms);
 
   const resp = {
     input: query,
@@ -126,8 +167,7 @@ export async function POST(req: NextRequest) {
     clinvar,
   };
 
-  // Short TTL: new publications and ClinVar re-classifications land often
-  // enough that a day-old answer could mislead.
-  await cacheSet(cacheKey, resp, 3600 * 6);
+  const complete = pubmed.status.complete && clinvar.status.complete;
+  await cacheSet(cacheKey, resp, complete ? COMPLETE_TTL_SEC : INCOMPLETE_TTL_SEC);
   return NextResponse.json(resp);
 }

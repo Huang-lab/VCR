@@ -35,13 +35,29 @@ function monthFromName(mon?: string): number {
 }
 
 /**
- * Sortable timestamp for a publication date. PubMed emits "YYYY Mon DD" (day
- * and month optional); Europe PMC emits ISO dates. Unparseable values sort last.
+ * Sortable timestamp for a publication date. PubMed emits "YYYY Mon DD" (month
+ * and day optional); Europe PMC emits ISO dates. Unparseable values sort last.
+ *
+ * ISO is matched first and explicitly. The PubMed pattern's month group needs
+ * leading whitespace, so it matches only the leading year of "2023-12-15" and
+ * would otherwise silently round every Europe PMC date down to 1 January,
+ * ranking an article published in December below one from that February.
  */
 export function pubDateRank(pubDate?: string): number {
   const s = pubDate?.trim();
   if (!s) return 0;
 
+  // ISO: 2023-12-15, 2023-12
+  const iso = s.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?/);
+  if (iso) {
+    return Date.UTC(
+      Number(iso[1]),
+      Math.min(11, Math.max(0, Number(iso[2]) - 1)),
+      iso[3] ? Number(iso[3]) : 1,
+    );
+  }
+
+  // PubMed: "2023 Jun 15", "2023 Jun", "2023"
   const pubmed = s.match(/^(\d{4})(?:\s+([A-Za-z]{3,9})(?:\s+(\d{1,2}))?)?/);
   if (pubmed) {
     return Date.UTC(
@@ -127,6 +143,16 @@ export function buildStatusFromDiagnostics(
     };
   }
   return { complete: true, likelyRateLimited: false, likelyPartial: false };
+}
+
+/** Status for a source whose search failed outright rather than partially. */
+export function failedSourceStatus(source: "PubMed" | "ClinVar"): SourceStatus {
+  return {
+    complete: false,
+    likelyRateLimited: false,
+    likelyPartial: true,
+    message: `${source} search failed. The other sources below are unaffected; please retry.`,
+  };
 }
 
 export function rateLimitedStatus(source: "PubMed" | "ClinVar", retryAfterSec?: number): SourceStatus {

@@ -122,8 +122,12 @@ by clinical significance (Pathogenic → Likely Pathogenic → VUS → …).
   - Tokens accrue at the published rate while several requests stay in flight,
     so round-trip latency overlaps instead of accumulating across the ~50
     representations a search expands into.
-  - Retries are charged against the same budget, so a burst of retries during
-    an upstream wobble cannot push the rate over the limit.
+  - A retry waits for its own token before going out, so a burst of retries
+    during an upstream wobble cannot push the rate over the limit. It waits on
+    a token only, never a second concurrency slot, since it already holds one.
+  - An upstream `Retry-After` is honoured up to a ceiling: NCBI can ask for
+    longer than the whole function budget, and waiting that long guarantees the
+    caller gets nothing rather than a partial result.
 
 7. **Resilience controls (`lib/ratelimit.ts`, `lib/cache.ts`)**
   - Per-client rate limiting (optional Upstash Redis).
@@ -143,7 +147,11 @@ took most of the 60s function ceiling and any upstream slowness pushed it over.
 Against a simulated upstream at a 300ms round-trip
 (`tests/search-throughput.test.ts`), the same work now completes in ~14s
 instead of ~45s, with a measured peak of 10 req/s — NCBI's documented ceiling
-with an API key, and no higher.
+with an API key, and no higher. The rate holds under failure too: with every
+phrase returning 503 and each retrying twice, the measured peak is 9 req/s.
+
+A partial or rate-limited result is cached for a minute rather than six hours,
+so the retry its status message advises actually reaches NCBI again.
 
 Note the scope of that guarantee: the limiter is per server instance, and
 NCBI's quota is per API key. A deployment running several instances

@@ -49,7 +49,10 @@ export class RateLimiter {
   private tokens: number;
   private lastRefill: number;
   private inFlight = 0;
-  private queue: (() => void)[] = [];
+  /** Waiters that need a token and a concurrency slot (new work). */
+  private slotWaiters: (() => void)[] = [];
+  /** Waiters that need only a token, already holding a slot (retries). */
+  private tokenWaiters: (() => void)[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: LimiterOptions) {
@@ -82,24 +85,44 @@ export class RateLimiter {
    */
   private pump(): void {
     this.refill();
-    while (this.queue.length > 0 && this.inFlight < this.concurrency && this.tokens >= 1) {
+
+    // Token-only waiters go first. They are retries that already hold a
+    // concurrency slot, so queueing them behind new work would leave that slot
+    // idle while they wait.
+    while (this.tokenWaiters.length > 0 && this.tokens >= 1) {
       this.tokens -= 1;
-      this.inFlight += 1;
-      const release = this.queue.shift()!;
-      release();
+      this.tokenWaiters.shift()!();
     }
 
-    if (this.queue.length === 0 || this.timer) return;
-    // Waiters remain. If they are blocked on tokens we know exactly how long to
-    // wait; if they are blocked on concurrency, a completing request will pump.
-    if (this.inFlight >= this.concurrency) return;
+    while (
+      this.slotWaiters.length > 0 &&
+      this.inFlight < this.concurrency &&
+      this.tokens >= 1
+    ) {
+      this.tokens -= 1;
+      this.inFlight += 1;
+      this.slotWaiters.shift()!();
+    }
+
+    this.arm();
+  }
+
+  /** Schedule the next pump when waiters remain that only time can release. */
+  private arm(): void {
+    if (this.timer) return;
+    if (this.tokenWaiters.length === 0 && this.slotWaiters.length === 0) return;
+    // Slot waiters blocked purely on concurrency are released by a completing
+    // request, not by the clock.
+    if (this.tokenWaiters.length === 0 && this.inFlight >= this.concurrency) return;
+
     const wait = Math.max(1, this.msUntilToken());
     this.timer = setTimeout(() => {
       this.timer = null;
       this.pump();
     }, wait);
-    // Do not hold the event loop open purely for a scheduling timer.
-    (this.timer as unknown as { unref?: () => void }).unref?.();
+    // Deliberately not unref'd: this timer is the only thing that will release
+    // token-blocked waiters, so letting the event loop exit while it is pending
+    // would abandon queued work and leave its promises unsettled.
   }
 
   /**
@@ -108,7 +131,7 @@ export class RateLimiter {
    */
   async schedule<T>(fn: () => Promise<T>): Promise<T> {
     await new Promise<void>((resolve) => {
-      this.queue.push(resolve);
+      this.slotWaiters.push(resolve);
       this.pump();
     });
     try {
@@ -120,21 +143,32 @@ export class RateLimiter {
   }
 
   /**
-   * Spend `n` tokens without running anything, to account for requests issued
-   * outside `schedule()` (notably retries, which must not exceed the quota just
-   * because they already hold a concurrency slot).
+   * Wait for one token without taking a concurrency slot.
+   *
+   * This is what a retry needs: the caller is already inside `schedule()` and
+   * holds a slot, so calling `schedule()` again would wait for a second slot
+   * and deadlock once every slot is held by a retrying request. Each retry is
+   * still a real request against the quota, so it must wait its turn rather
+   * than fire immediately.
    */
-  consume(n = 1): void {
-    this.refill();
-    this.tokens = Math.max(0, this.tokens - n);
+  async acquireToken(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this.tokenWaiters.push(resolve);
+      this.pump();
+    });
   }
 
   /** Introspection for tests and diagnostics. */
-  stats(): { ratePerSec: number; concurrency: number; queued: number; inFlight: number } {
+  stats(): {
+    ratePerSec: number;
+    concurrency: number;
+    queued: number;
+    inFlight: number;
+  } {
     return {
       ratePerSec: this.ratePerSec,
       concurrency: this.concurrency,
-      queued: this.queue.length,
+      queued: this.slotWaiters.length + this.tokenWaiters.length,
       inFlight: this.inFlight,
     };
   }
@@ -156,7 +190,16 @@ export async function mapWithLimiter<T, R>(
   return Promise.all(tasks.map((item, i) => limiter.schedule(() => fn(item, i))));
 }
 
-function envNumber(name: string, fallback: number): number {
+/**
+ * Read a positive number from the environment.
+ *
+ * `Number(process.env.X ?? fallback)` is not equivalent: `??` only falls back
+ * on undefined, so a defined-but-blank variable — the shape `.env.example`
+ * uses and deployment dashboards commonly produce — yields `Number("") === 0`,
+ * and a typo yields NaN. Both are silently destructive when the value is a
+ * timeout or a size limit.
+ */
+export function envNumber(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
   const n = Number(raw);

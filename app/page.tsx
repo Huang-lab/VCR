@@ -124,10 +124,9 @@ export default function Page() {
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [initial, setInitial] = useState<{ query: string; assembly: Assembly }>({
-    query: "",
-    assembly: "GRCh38",
-  });
+  // The form is controlled from here so it cannot drift out of step with the URL.
+  const [query, setQuery] = useState("");
+  const [assembly, setAssembly] = useState<Assembly>("GRCh38");
 
   // Cancels the previous search when a new one starts, so a slow earlier
   // response can never overwrite a newer one.
@@ -140,7 +139,9 @@ export default function Page() {
       inFlight.current = controller;
 
       setError(null);
-      setResult(null);
+      // The previous result stays on screen, dimmed, until this one lands.
+      // Clearing it here blanked the page the user was reading for the whole
+      // search.
       setLoading(true);
 
       if (updateUrl && typeof window !== "undefined") {
@@ -188,15 +189,23 @@ export default function Page() {
     [],
   );
 
-  // Run the search named by the URL, on first load and on back/forward.
+  // Run the search named by the URL, on first load and on back/forward. The
+  // form fields are set unconditionally so they always describe the URL, even
+  // when the value is unchanged or empty.
   useEffect(() => {
     const fromLocation = () => {
       const params = new URLSearchParams(window.location.search);
       const q = params.get("q")?.trim() ?? "";
-      const assembly = parseAssembly(params.get("assembly"));
-      setInitial({ query: q, assembly });
-      if (q) void runSearch(q, assembly, { updateUrl: false });
-      else setResult(null);
+      const build = parseAssembly(params.get("assembly"));
+      setQuery(q);
+      setAssembly(build);
+      if (q) {
+        void runSearch(q, build, { updateUrl: false });
+      } else {
+        inFlight.current?.abort();
+        setResult(null);
+        setError(null);
+      }
     };
 
     fromLocation();
@@ -238,10 +247,12 @@ export default function Page() {
       </div>
 
       <SearchForm
+        query={query}
+        assembly={assembly}
+        onQueryChange={setQuery}
+        onAssemblyChange={setAssembly}
         onSearch={(q, a) => void runSearch(q, a)}
         disabled={loading}
-        initialQuery={initial.query}
-        initialAssembly={initial.assembly}
       />
 
       {error && <div className="error">{error}</div>}
@@ -251,7 +262,7 @@ export default function Page() {
       )}
 
       {result && (
-        <>
+        <div className={loading ? "results-stale" : undefined} aria-busy={loading}>
           <ExportBar
             query={result.input}
             shareUrl={shareUrlFor(result.input, result.assembly)}
@@ -262,7 +273,7 @@ export default function Page() {
           <VariantPanel data={result} />
           {clinvar && <ClinvarResults data={clinvar} />}
           {pubmed && <ResultsList data={pubmed} />}
-        </>
+        </div>
       )}
     </main>
   );

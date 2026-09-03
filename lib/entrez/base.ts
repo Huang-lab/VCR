@@ -11,13 +11,24 @@
 import {
   RateLimiter,
   entrezLimiter,
+  envNumber,
   mapWithLimiter,
 } from "@/lib/entrez/scheduler";
 
 const EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 
 /** Abandon a single upstream call after this long. */
-const REQUEST_TIMEOUT_MS = Number(process.env.ENTREZ_TIMEOUT_MS ?? 15000);
+const REQUEST_TIMEOUT_MS = envNumber("ENTREZ_TIMEOUT_MS", 15000);
+
+/**
+ * Cap on how long we honour an upstream `Retry-After`.
+ *
+ * NCBI can answer a 429 with a delay longer than the whole serverless function
+ * budget. Sleeping that long guarantees the platform kills the request and the
+ * caller gets no body at all, which is worse than returning the partial result
+ * with `likelyRateLimited` set.
+ */
+const MAX_RETRY_WAIT_MS = envNumber("ENTREZ_MAX_RETRY_WAIT_MS", 5000);
 
 export interface EntrezConfig {
   apiKey?: string;
@@ -74,6 +85,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * How long to wait before retrying: the upstream `Retry-After` when it gives
+ * one, else exponential backoff — clamped either way so a retry cannot outlast
+ * the function budget.
+ */
+export function retryWaitMs(retryAfterHeader: string | null, attempt: number): number {
+  const retryAfter = Number(retryAfterHeader);
+  const requested =
+    Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : 300 * Math.pow(2, attempt - 1);
+  return Math.min(requested, MAX_RETRY_WAIT_MS);
+}
+
 function networkFailureResponse(detail?: unknown): Response {
   return new Response(
     JSON.stringify({
@@ -87,18 +112,22 @@ function networkFailureResponse(detail?: unknown): Response {
 /**
  * fetch with bounded retries on transient failures.
  *
- * The caller already holds a rate-limit token for its first attempt. Each
- * *retry* is an additional request against the same quota, so it spends another
- * token via `limiter.consume()` — otherwise a burst of retries during an
- * upstream wobble would push us over the limit precisely when NCBI is already
- * unhappy. `Retry-After` is honoured when present.
+ * The caller already holds a rate-limit token and concurrency slot for its
+ * first attempt. Each *retry* is an additional request against the same quota,
+ * so it waits for its own token via `acquireToken()` before going out —
+ * otherwise a burst of retries during an upstream wobble pushes the rate over
+ * the limit precisely when NCBI is already unhappy. `acquireToken` deliberately
+ * does not take a second concurrency slot, which would deadlock once every
+ * slot were held by a retrying request.
+ *
+ * `Retry-After` is honoured up to MAX_RETRY_WAIT_MS.
  */
 async function timedFetch(url: string, limiter?: RateLimiter): Promise<Response> {
   const maxAttempts = 3;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (attempt > 1) limiter?.consume(1);
+    if (attempt > 1) await limiter?.acquireToken();
     let res: Response;
     try {
       res = await fetch(url, {
@@ -117,12 +146,7 @@ async function timedFetch(url: string, limiter?: RateLimiter): Promise<Response>
     if (res.ok) return res;
     if (!RETRIABLE_STATUS.has(res.status) || attempt === maxAttempts) return res;
 
-    const retryAfter = Number(res.headers.get("Retry-After"));
-    const waitMs =
-      Number.isFinite(retryAfter) && retryAfter > 0
-        ? retryAfter * 1000
-        : 300 * Math.pow(2, attempt - 1);
-    await sleep(waitMs);
+    await sleep(retryWaitMs(res.headers.get("Retry-After"), attempt));
   }
 
   return networkFailureResponse(lastError);
