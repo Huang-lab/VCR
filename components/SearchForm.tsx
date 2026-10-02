@@ -19,13 +19,7 @@ interface Props {
   disabled: boolean;
 }
 
-const EXAMPLES = [
-  "BRAF p.V600E",
-  "NM_004333.6:c.1799T>A",
-  "chr7:g.140753336A>T",
-  "rs113488022",
-  "KRAS G12D",
-];
+const EXAMPLES = ["CFH p.R1210C", "BRAF p.V600E", "KRAS p.G12D", "TP53 p.R175H", "APOB p.R3527Q"];
 
 export function SearchForm({
   query,
@@ -46,9 +40,11 @@ export function SearchForm({
       >
         <input
           type="text"
-          placeholder="e.g. BRAF p.V600E"
+          placeholder="rsID, HGVS, or gene + change (e.g. rs80359550, BRAF p.V600E)"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          aria-label="Variant"
           autoFocus
           disabled={disabled}
         />
@@ -61,8 +57,14 @@ export function SearchForm({
           <option value="GRCh38">GRCh38 / hg38</option>
           <option value="GRCh37">GRCh37 / hg19</option>
         </select>
-        <button type="submit" disabled={disabled || !query.trim()}>
-          {disabled ? "Searching…" : "Search"}
+        <button type="submit" disabled={disabled || !query.trim()} aria-busy={disabled}>
+          {disabled ? (
+            <>
+              <span className="btn-spinner" aria-hidden="true" /> Searching
+            </>
+          ) : (
+            "Search"
+          )}
         </button>
       </form>
       <p className="examples">
@@ -70,7 +72,17 @@ export function SearchForm({
         {EXAMPLES.map((ex, i) => (
           <span key={ex}>
             {i > 0 && " "}
-            <code onClick={() => onQueryChange(ex)}>{ex}</code>
+            <button
+              type="button"
+              className="example-chip"
+              disabled={disabled}
+              onClick={() => {
+                onQueryChange(ex);
+                onSearch(ex, assembly);
+              }}
+            >
+              {ex}
+            </button>
           </span>
         ))}
       </p>

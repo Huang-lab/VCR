@@ -8,6 +8,7 @@
  */
 
 import type { Assembly, ClassifiedInput, CanonicalVariant } from "@/lib/hgvs/types";
+import { proteinFormsFor } from "@/lib/clinvar/forms";
 import type { VariantGroups, VariantString } from "@/lib/hgvs/enumerate";
 
 export interface ExpansionResult {
@@ -60,11 +61,7 @@ export function collectVariants(expand: ExpansionResult): string[] {
 export function buildProteinForms(expand: ExpansionResult): string[] {
   const out = new Set<string>();
   const push = (s?: string) => {
-    if (!s) return;
-    const bare = s.replace(/^p\./i, "");
-    if (!bare) return;
-    out.add(bare);
-    out.add(`p.${bare}`);
+    if (s) for (const f of proteinFormsFor(s)) out.add(f);
   };
   push(expand.classified.proteinShort);
   push(expand.classified.proteinLong);
