@@ -77,12 +77,12 @@ function GroupHeader({ g }: { g: TranscriptGroup }) {
       <div className="group-title">
         {headline || "(transcript)"}
         {g.isManeSelect && (
-          <span className="mane-badge mane-select" title="MANE Select — NCBI/Ensembl agreed-upon default transcript">
+          <span className="mane-badge mane-select" title="MANE Select - NCBI/Ensembl agreed-upon default transcript">
             MANE Select
           </span>
         )}
         {g.isManePlusClinical && (
-          <span className="mane-badge mane-plus" title="MANE Plus Clinical — clinically important additional transcript">
+          <span className="mane-badge mane-plus" title="MANE Plus Clinical - clinically important additional transcript">
             MANE Plus Clinical
           </span>
         )}
@@ -120,7 +120,7 @@ export function VariantPanel({ data }: Props) {
           <div className="group-header">
             <div className="group-title">Transcript-independent</div>
             <div className="group-sub">
-              <span className="muted-small">dbSNP / genomic coordinates — same for every transcript</span>
+              <span className="muted-small">dbSNP / genomic coordinates - same for every transcript</span>
             </div>
           </div>
           <ChipList items={groups.universal} />
@@ -142,7 +142,7 @@ export function VariantPanel({ data }: Props) {
             <div className="group-title">Unresolved input</div>
             <div className="group-sub">
               <span className="muted-small">
-                Could not canonicalize via VEP/Mutalyzer — searching on the raw input only.
+                Could not canonicalize via VEP/Mutalyzer - searching on the raw input only.
               </span>
             </div>
           </div>

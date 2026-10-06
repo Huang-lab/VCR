@@ -3,7 +3,7 @@
  *
  * Keyed on the client IP (x-forwarded-for first hop, falling back to req.ip).
  * Graceful no-op if the Upstash env vars are not set, so local development
- * works without any external dependency — same pattern as lib/cache.ts.
+ * works without any external dependency - same pattern as lib/cache.ts.
  *
  * Configuration (all optional; defaults shown):
  *   RATE_LIMIT_MAX=20          requests allowed per window
@@ -31,7 +31,7 @@ const limiter = enabled
   ? new Ratelimit({
       redis: Redis.fromEnv(),
       limiter: Ratelimit.slidingWindow(max, windowStr),
-      prefix: "varcrawl:rl",
+      prefix: "vcr:rl",
       analytics: false,
     })
   : null;

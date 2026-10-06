@@ -194,8 +194,8 @@ export async function mapWithLimiter<T, R>(
  * Read a positive number from the environment.
  *
  * `Number(process.env.X ?? fallback)` is not equivalent: `??` only falls back
- * on undefined, so a defined-but-blank variable — the shape `.env.example`
- * uses and deployment dashboards commonly produce — yields `Number("") === 0`,
+ * on undefined, so a defined-but-blank variable - the shape `.env.example`
+ * uses and deployment dashboards commonly produce - yields `Number("") === 0`,
  * and a typo yields NaN. Both are silently destructive when the value is a
  * timeout or a size limit.
  */
@@ -211,8 +211,8 @@ export function envNumber(name: string, fallback: number): number {
  * without.
  *
  * Choosing the numbers: a token bucket admits at most `burst + ratePerSec`
- * requests in any one-second window, so `burst + ratePerSec` — not
- * `ratePerSec` alone — is what has to stay within the ceiling. Sustained rate
+ * requests in any one-second window, so `burst + ratePerSec` - not
+ * `ratePerSec` alone - is what has to stay within the ceiling. Sustained rate
  * sits below it as well, leaving room for the retries that `consume()` charges
  * against the same budget.
  *
@@ -237,7 +237,7 @@ function ncbiLimiterFor(hasApiKey: boolean): RateLimiter {
 }
 
 // One limiter per credential class, created lazily and shared process-wide so
-// that PubMed and ClinVar searches running concurrently draw on a single
+// that concurrent ClinVar searches draw on a single
 // budget rather than each assuming the whole quota.
 let keyedLimiter: RateLimiter | null = null;
 let anonLimiter: RateLimiter | null = null;
@@ -251,25 +251,8 @@ export function entrezLimiter(hasApiKey: boolean): RateLimiter {
   return anonLimiter;
 }
 
-/**
- * Europe PMC (EBI) publishes no hard numeric limit and asks for considerate
- * use. It is a different host with a different quota, so it gets its own
- * limiter rather than competing with NCBI's.
- */
-let europePmcLimiterInstance: RateLimiter | null = null;
-
-export function europePmcLimiter(): RateLimiter {
-  europePmcLimiterInstance ??= new RateLimiter({
-    ratePerSec: envNumber("EUROPEPMC_RATE_PER_SEC", 8),
-    concurrency: envNumber("EUROPEPMC_CONCURRENCY", 5),
-    burst: envNumber("EUROPEPMC_BURST", 2),
-  });
-  return europePmcLimiterInstance;
-}
-
 /** Test hook: drop cached limiters so options are re-read. */
 export function __resetLimitersForTests(): void {
   keyedLimiter = null;
   anonLimiter = null;
-  europePmcLimiterInstance = null;
 }

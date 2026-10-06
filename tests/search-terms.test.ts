@@ -2,12 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_SEARCH_TERMS,
   buildProteinForms,
-  buildPubmedSearchTerms,
   collectVariants,
   hasGeneSymbol,
-  literatureSearchBlockedReason,
   normalizeTerms,
-  rankPubmedTerm,
   resolveGene,
 } from "@/lib/search/terms";
 import type { ExpansionResult } from "@/lib/search/terms";
@@ -102,56 +99,6 @@ describe("buildProteinForms", () => {
   });
 });
 
-describe("rankPubmedTerm", () => {
-  const ctx = { rawInput: "BRAF p.V600E", gene: "BRAF", transcripts: ["NM_004333.6"] };
-
-  it("ranks the user's own input first", () => {
-    expect(rankPubmedTerm("BRAF p.V600E", ctx)).toBe(0);
-  });
-
-  it("ranks unambiguous identifiers above gene-qualified forms", () => {
-    expect(rankPubmedTerm("rs113488022", ctx)).toBe(1);
-    expect(rankPubmedTerm("chr7:g.140753336A>T", ctx)).toBe(1);
-    expect(rankPubmedTerm("BRAF V600E", ctx)).toBe(2);
-    expect(rankPubmedTerm("NM_004333.6:c.1799T>A", ctx)).toBe(3);
-    expect(rankPubmedTerm("c.1799T>A", ctx)).toBe(4);
-  });
-});
-
-describe("buildPubmedSearchTerms", () => {
-  it("adds gene context to bare representations", () => {
-    const terms = buildPubmedSearchTerms(brafV600E());
-    expect(terms).toContain("BRAF V600E");
-    expect(terms).toContain("BRAF c.1799T>A");
-  });
-
-  it("orders strongest terms first, since the list is truncated", () => {
-    const terms = buildPubmedSearchTerms(brafV600E());
-    expect(terms[0]).toBe("BRAF p.V600E");
-    const bareIdx = terms.indexOf("c.1799T>A");
-    const geneIdx = terms.indexOf("BRAF V600E");
-    if (bareIdx >= 0) expect(geneIdx).toBeLessThan(bareIdx);
-  });
-
-  it("drops gene-free phrases for gene-ambiguous input", () => {
-    // "V600E" alone would match papers about any gene's codon 600.
-    const terms = buildPubmedSearchTerms(brafV600E());
-    expect(terms.every((t) => hasGeneSymbol(t, "BRAF"))).toBe(true);
-  });
-
-  it("keeps bare coordinates for a genomic query with no gene", () => {
-    const e = expansion("chr7:g.140753336A>T", {
-      chrom: "7",
-      genomicPos: 140753336,
-      refAllele: "A",
-      altAllele: "T",
-    });
-    const terms = buildPubmedSearchTerms(e);
-    expect(terms).toContain("chr7:g.140753336A>T");
-    expect(terms).toContain("7:g.140753336A>T");
-  });
-});
-
 describe("normalizeTerms", () => {
   it("trims, de-duplicates and preserves order", () => {
     expect(normalizeTerms([" V600E ", "V600E", "", "p.V600E"])).toEqual([
@@ -170,27 +117,5 @@ describe("normalizeTerms", () => {
     expect(normalizeTerms(undefined)).toEqual([]);
     expect(normalizeTerms("V600E")).toEqual([]);
     expect(normalizeTerms([1, null, "V600E"])).toEqual(["V600E"]);
-  });
-});
-
-describe("literatureSearchBlockedReason", () => {
-  it("blocks a protein-only query with no resolvable gene", () => {
-    const e = expansion("V600E", {});
-    expect(e.classified.kind).toBe("short");
-    expect(literatureSearchBlockedReason(e)).toMatch(/require a gene symbol/);
-  });
-
-  it("allows the same query once a gene is known", () => {
-    expect(literatureSearchBlockedReason(brafV600E())).toBeNull();
-  });
-
-  it("allows a genomic query with no gene", () => {
-    const e = expansion("chr7:g.140753336A>T", {
-      chrom: "7",
-      genomicPos: 140753336,
-      refAllele: "A",
-      altAllele: "T",
-    });
-    expect(literatureSearchBlockedReason(e)).toBeNull();
   });
 });

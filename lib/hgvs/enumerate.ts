@@ -2,8 +2,8 @@ import { CanonicalVariant, Consequence } from "./types";
 
 /**
  * Produce every string representation a mutation is likely to appear as in
- * literature. We want high-recall for PubMed phrase matching — each returned
- * string will be run as `"string"[All Fields]`.
+ * ClinVar and the literature. We want high recall for phrase matching, since each
+ * returned string is searched as an exact phrase.
  *
  * Grouped by source so the UI can explain *where* each representation comes
  * from (per transcript / isoform, plus a "universal" group for
@@ -15,7 +15,7 @@ export interface VariantString {
 }
 
 export interface TranscriptGroup {
-  // Identifier fields — at least one of these will be set
+  // Identifier fields - at least one of these will be set
   gene?: string;
   transcript?: string;         // NM_004333.6
   proteinAccession?: string;   // NP_004324.2
@@ -31,7 +31,7 @@ export interface TranscriptGroup {
 }
 
 export interface VariantGroups {
-  // Transcript-independent: rsID, HGVSg — appear only once no matter how many transcripts
+  // Transcript-independent: rsID, HGVSg - appear only once no matter how many transcripts
   universal: VariantString[];
   // One group per transcript/isoform
   perTranscript: TranscriptGroup[];
@@ -81,7 +81,7 @@ export function enumerateGrouped(v: CanonicalVariant): VariantGroups {
   // whenever two consequences share a transcript id or both lack one (VEP omits
   // it for some consequence types): `find` returns the first match, so one
   // consequence would be enumerated twice while another was never enumerated
-  // at all — and dedupe then drops the emptied group, silently losing its
+  // at all - and dedupe then drops the emptied group, silently losing its
   // variant strings from the search.
   const pending: { group: TranscriptGroup; consequence: Consequence; rank: number }[] = [];
   for (const c of v.consequences) {
@@ -126,7 +126,7 @@ function enumerateConsequence(
   bucket: VariantString[],
   dedupe: (bucket: VariantString[], text: string | undefined | null, label: string) => void,
 ) {
-  // HGVSc — with and without transcript prefix, gene-prefixed
+  // HGVSc - with and without transcript prefix, gene-prefixed
   if (c.hgvsc) {
     dedupe(bucket, c.hgvsc, "HGVSc (with transcript)");
     const bare = stripAccession(c.hgvsc);
@@ -135,7 +135,7 @@ function enumerateConsequence(
     if (c.gene && bare) dedupe(bucket, `${c.gene} ${bare}`, "HGVSc (gene space)");
   }
 
-  // HGVSp — with and without transcript prefix, 3-letter forms
+  // HGVSp - with and without transcript prefix, 3-letter forms
   if (c.hgvsp) {
     dedupe(bucket, c.hgvsp, "HGVSp (with transcript)");
     const bare = stripAccession(c.hgvsp);
@@ -151,7 +151,7 @@ function enumerateConsequence(
     if (c.gene) dedupe(bucket, `${c.gene}:${c.proteinLong}`, "gene:p.3-letter");
   }
 
-  // HGVSp — 1-letter forms
+  // HGVSp - 1-letter forms
   if (c.proteinShort) {
     dedupe(bucket, `p.${c.proteinShort}`, "p.1-letter");
     dedupe(bucket, c.proteinShort, "1-letter bare");
@@ -167,7 +167,7 @@ function stripAccession(hgvs: string): string | null {
   return hgvs.slice(idx + 1);
 }
 
-/** Flatten grouped variants into a single deduplicated array for PubMed search. */
+/** Flatten grouped variants into a single deduplicated array for phrase search. */
 export function flattenVariants(groups: VariantGroups): VariantString[] {
   const seen = new Set<string>();
   const out: VariantString[] = [];

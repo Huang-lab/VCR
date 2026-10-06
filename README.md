@@ -1,40 +1,71 @@
-# VarCrawl
+# VCR (variant cancer risk)
 
 Powered by the Huang Lab at Mount Sinai (<https://labs.icahn.mssm.edu/kuanhuanglab/>).
 
-GitHub: <https://github.com/Huang-lab/VarCrawl>
+GitHub: <https://github.com/Huang-lab/VCR>
 
-A serverless web app for searching PubMed, Europe PMC, and ClinVar by mutation. Paste a
-mutation in any common notation (HGVSp, HGVSc, HGVSg, short forms like `V600E`,
-`BRAF p.V600E`, dbSNP rsIDs) and the app expands it into every string
-representation the mutation might appear under in the literature, groups them
-by transcript/isoform (with MANE Select / MANE Plus Clinical badges), and
-searches PubMed (Entrez), Europe PMC, and ClinVar for each as an exact phrase.
+VCR is a serverless web app that answers one question for a variant: how likely is a carrier to have the disease, compared with everyone else?
+Paste a variant in any common notation (HGVSp, HGVSc, HGVSg, short forms like `V600E`, `BRAF p.V600E`, or a dbSNP rsID).
+VCR resolves it, looks up its penetrance, sets that beside a published base rate for the disease, and lists the ClinVar records for the variant.
+
+VCR was split from [VarCrawl](https://github.com/Huang-lab/VarCrawl).
+VarCrawl stays the literature search tool (PubMed, Europe PMC and ClinVar by mutation).
+VCR keeps the variant resolution and ClinVar search, and adds the penetrance view.
 
 ## Stack
 
-- **Next.js 14 (app router)** — deploys to Vercel as static UI + route handlers.
-- **Ensembl VEP REST** (`rest.ensembl.org`, `grch37.rest.ensembl.org`) for
-  HGVSp ↔ HGVSc ↔ HGVSg cross-conversion across transcripts.
-- **Mutalyzer** (`mutalyzer.nl/api`) as an HGVS normalizer (best-effort).
-- **NCBI Variation Services** as a RefSeq-aware fallback (best-effort).
-- **NCBI Entrez E-utilities** (`eutils.ncbi.nlm.nih.gov`) for PubMed search.
-- **Europe PMC REST API** (`ebi.ac.uk/europepmc`) for supplemental literature recall.
-- **Upstash Redis** (optional) for caching.
+- **Next.js 14 (app router)**: deploys to Vercel as static UI plus route handlers.
+- **Ensembl VEP REST** (`rest.ensembl.org`, `grch37.rest.ensembl.org`) for HGVSp, HGVSc and HGVSg cross-conversion across transcripts.
+- **Mutalyzer** (`mutalyzer.nl/api`) as an HGVS normalizer (best effort).
+- **NCBI Variation Services** as a RefSeq-aware fallback (best effort).
+- **NCBI Entrez E-utilities** (`eutils.ncbi.nlm.nih.gov`) for ClinVar search.
+- **Upstash Redis** (optional) for caching and per-client rate limiting.
 
-## Genome assemblies
-GRCh38 and GRCh37 are fully supported via the two Ensembl REST endpoints.
+GRCh38 and GRCh37 are both supported through the two Ensembl REST endpoints.
 
 ## Getting started
 
 ```bash
-pnpm install      # or npm install / yarn
+npm install
 cp .env.example .env.local
-# add NCBI_API_KEY + NCBI_EMAIL for 10 req/s PubMed throughput
-pnpm dev
+# add NCBI_API_KEY + NCBI_EMAIL for 10 req/s ClinVar throughput
+npm run dev
 ```
 
 Open <http://localhost:3000>.
+
+## Penetrance card
+
+One search box takes an rsID, HGVS, or gene + change.
+The result page shows a summary (penetrance and ClinVar), then the penetrance card, then the ClinVar records and every form of the variant.
+Penetrance is matched by rsID, or by GRCh38 position.
+
+Penetrance here is the share of carriers with an ICD-10 diagnosis of the disease.
+The clinical algorithm (ML phenotype) column of eTable 4 is not used.
+The card is written for non-specialist clinicians: a plain-language summary sentence, 100-person icon arrays, and a "How to read this" glossary.
+Each estimate has a 95% Wilson confidence range, shown as a "likely range", and variants with fewer than 30 carriers are flagged.
+
+### Base rates
+
+Where a published general-population rate is on file (`lib/penetrance/baseline.ts`), the card sets the carriers' rate beside it.
+It says whether the carriers' rate is above, below, or not clearly different from the published rate.
+"Above" or "below" is only claimed when the base rate falls outside the carriers' 95% range.
+
+Read these comparisons with care:
+
+- The base rates are approximate figures from the literature, not the rate among non-carriers in the source cohort.
+- The comparison is not adjusted for age, sex, or ancestry, and the two groups were sampled differently.
+- A "below" result does not show a variant is protective.
+- Base rates are lifetime or overall figures, so they are compared only at the lifetime (oldest age) view.
+- The values were entered by hand and should be checked against the cited sources before any clinical use.
+
+### Data
+
+Data is bundled in `public/data/etable4_penetrance.csv`, from eTable 4 of the JAMA article at <https://jamanetwork.com/journals/jama/fullarticle/2788347> (lifetime penetrance, all ages).
+You can upload your own CSV with the same columns (only the ICD-10 count column is needed).
+Add an `Age` column to provide age-specific data.
+Rows sharing a variant then form a cumulative penetrance curve, and the card shows an age slider and chart.
+The "Demo: age-specific" dataset is synthetic and illustrative only.
 
 ## API
 
@@ -44,17 +75,10 @@ Open <http://localhost:3000>.
 { "query": "BRAF p.V600E", "assembly": "GRCh38" }
 ```
 
-Expands the mutation and searches every source in a single request, returning
-the expansion (`classified`, `canonical`, `groups`, `variants`), the phrase
-lists actually searched (`searchTerms`), and both result sets (`pubmed`,
-`clinvar`). This is what the UI calls.
-
-Doing all of it in one request is what makes the PubMed and ClinVar searches
-safe to run concurrently: they share this process's Entrez rate limiter. Split
-across separate HTTP requests they can land on different serverless instances,
-each assuming the whole NCBI quota.
-
-The endpoints below remain available for programmatic use.
+Expands the variant and searches ClinVar in a single request.
+It returns the expansion (`classified`, `canonical`, `groups`, `variants`), the phrases actually searched (`searchTerms`), and the `clinvar` result set.
+This is what the UI calls.
+Send `Accept: application/x-ndjson` to stream: the expansion arrives first, then ClinVar, then a `done` event.
 
 ### `POST /api/expand`
 
@@ -62,139 +86,72 @@ The endpoints below remain available for programmatic use.
 { "query": "BRAF p.V600E", "assembly": "GRCh38" }
 ```
 
-Returns the classified input, canonical variant, and an array of every string
-representation to search on.
-
-### `POST /api/pubmed`
-
-```json
-{ "variants": ["V600E", "p.Val600Glu", "c.1799T>A", "chr7:g.140753336A>T"] }
-```
-
-Runs one phrase query per variant against PubMed and Europe PMC, unions PMIDs,
-batches PubMed `esummary` metadata, and returns merged articles sorted by best
-match (more matched representations first; recency as tie-breaker) with
-per-article `matchedBy` attribution and source labels.
+Returns the classified input, canonical variant, and an array of every string representation to search on.
 
 ### `POST /api/clinvar`
 
-Same shape as `/api/pubmed` but queries NCBI `db=clinvar`. Returns ClinVar
-records with germline classification, review status, and conditions, sorted
-by clinical significance (Pathogenic → Likely Pathogenic → VUS → …).
+```json
+{ "variants": ["V600E", "p.Val600Glu", "c.1799T>A", "chr7:g.140753336A>T"], "gene": "BRAF" }
+```
+
+Runs one phrase query per variant against NCBI `db=clinvar`.
+It returns ClinVar records with germline classification, review status, and conditions.
+Records are sorted by clinical significance (Pathogenic, Likely Pathogenic, VUS, and so on).
+Passing `gene` and `proteinForms` filters out off-target records.
 
 ## How it works
 
 1. **Input classification (`lib/hgvs/classify.ts`)**
-  - Detects whether a query looks like protein/cDNA/genomic HGVS, short forms
-    (e.g. `V600E`), gene+variant forms, or dbSNP rsIDs.
+  - Detects whether a query looks like protein, cDNA or genomic HGVS, a short form (for example `V600E`), a gene + variant form, or a dbSNP rsID.
 
-2. **Canonicalization + cross-conversion (`lib/hgvs/convert.ts`)**
-  - Resolves a canonical variant using Ensembl VEP (plus fallbacks), then
-    converts across HGVSp ↔ HGVSc ↔ HGVSg and across GRCh38/GRCh37 when possible.
+2. **Canonicalization and cross-conversion (`lib/hgvs/convert.ts`)**
+  - Resolves a canonical variant using Ensembl VEP (plus fallbacks).
+  - Converts across HGVSp, HGVSc and HGVSg, and across GRCh38 and GRCh37 when possible.
 
 3. **Variant enumeration (`lib/hgvs/enumerate.ts`)**
-  - Expands one canonical event into many searchable strings:
-    bare/with-prefix HGVS, gene-prefixed forms, one-letter and three-letter
-    protein forms, transcript-specific forms, and rsID/genomic coordinate forms.
-  - Groups by transcript so MANE Select / MANE Plus Clinical forms are explicit.
+  - Expands one canonical event into many searchable strings: bare and prefixed HGVS, gene-prefixed forms, one-letter and three-letter protein forms, transcript-specific forms, and rsID and genomic coordinate forms.
+  - Groups by transcript so MANE Select and MANE Plus Clinical forms are explicit.
 
-4. **PubMed retrieval (`lib/pubmed/entrez.ts`, `lib/entrez/base.ts`)**
-  - Executes one exact-phrase Entrez `esearch` per representation.
-  - Unions PMIDs across all phrases and tracks `matchedBy` attribution.
-  - Fetches metadata in `esummary` batches.
-  - Ranks by **best match** (more matched representations first), then by date.
-
-5. **ClinVar retrieval + filtering (`lib/clinvar/entrez.ts`, `lib/clinvar/filter.ts`)**
-  - Same phrase-union pattern on `db=clinvar`.
-  - Applies gene/protein-form filtering to reduce off-target records.
+4. **ClinVar retrieval and filtering (`lib/clinvar/entrez.ts`, `lib/clinvar/filter.ts`)**
+  - Runs one exact-phrase Entrez `esearch` per representation and unions the record IDs.
+  - Applies gene and protein-form filtering to reduce off-target records.
   - Sorts by clinical significance priority.
 
+5. **Penetrance lookup (`lib/penetrance/`)**
+  - Parses the bundled or uploaded CSV, matches records by rsID or locus, and computes confidence ranges and the base-rate comparison.
+
 6. **Upstream pacing (`lib/entrez/scheduler.ts`)**
-  - Every outbound Entrez / Europe PMC call passes through a token-bucket
-    limiter with a concurrency ceiling, shared process-wide so that the PubMed
-    and ClinVar searches draw on one budget.
-  - Tokens accrue at the published rate while several requests stay in flight,
-    so round-trip latency overlaps instead of accumulating across the ~50
-    representations a search expands into.
-  - A retry waits for its own token before going out, so a burst of retries
-    during an upstream wobble cannot push the rate over the limit. It waits on
-    a token only, never a second concurrency slot, since it already holds one.
-  - An upstream `Retry-After` is honoured up to a ceiling: NCBI can ask for
-    longer than the whole function budget, and waiting that long guarantees the
-    caller gets nothing rather than a partial result.
+  - Every outbound Entrez call passes through a token-bucket limiter with a concurrency ceiling, shared process-wide.
+  - Tokens accrue at the published rate while several requests stay in flight, so round-trip latency overlaps instead of accumulating across the representations a search expands into.
+  - A retry waits for its own token before going out, so a burst of retries during an upstream wobble cannot push the rate over the limit.
+  - An upstream `Retry-After` is honoured up to a ceiling, because NCBI can ask for longer than the whole function budget.
+  - The limiter is per server instance and NCBI's quota is per API key, so a multi-instance deployment can still exceed the rate in aggregate.
+    The defaults leave headroom and `Retry-After` on a 429 remains the backstop.
 
 7. **Resilience controls (`lib/ratelimit.ts`, `lib/cache.ts`)**
-  - Per-client rate limiting (optional Upstash Redis).
-  - Response caching (optional Upstash Redis) for repeated variant lookups.
-  - Per-request timeouts, so one hung upstream call cannot consume the whole
-    serverless function budget.
-  - Source diagnostics mark likely partial/rate-limited upstream retrievals.
-
-## Penetrance and literature in one search
-
-One search box takes an rsID, HGVS, or gene + change.
-The result page shows a summary (variant, penetrance, ClinVar, literature count), then a penetrance card, then ClinVar and PubMed/Europe PMC results.
-Penetrance is matched by rsID, or by GRCh38 position.
-Penetrance is the share of carriers with an ICD-10 diagnosis of the disease; the clinical algorithm (ML phenotype) column of eTable 4 is not used.
-The card is written for non-specialist clinicians: a plain-language summary sentence, 100-person icon arrays, and a "How to read this" glossary.
-Each estimate has a 95% Wilson confidence range, shown as a "likely range", and variants with fewer than 30 carriers are flagged.
-
-Where a published general-population rate is on file (`lib/penetrance/baseline.ts`), the card sets the carriers' rate beside it and says whether it is higher, lower, or not clearly different.
-"Higher" or "lower" is only claimed when the baseline falls outside the carriers' 95% range.
-These base rates are approximate figures from the literature, not the rate in the source cohort, and are compared only at the lifetime (oldest age) view.
-
-Data is bundled in `public/data/etable4_penetrance.csv` (lifetime penetrance, all ages) and you can upload your own CSV with the same columns (only the ICD-10 count column is needed).
-Add an `Age` column to provide age-specific data: rows sharing a variant form a cumulative penetrance curve, and the card shows an age slider and chart.
-The "Demo: age-specific" dataset is synthetic and illustrative only.
-
-## Performance
-
-A search over the full 50-representation budget issues ~110 NCBI requests plus
-~50 to Europe PMC. Running those serially with a fixed pause between each — one
-request in flight at a time — achieved roughly 2.5 req/s of NCBI's 10 req/s
-allowance, because the round-trip, not the quota, set the pace. A common query
-took most of the 60s function ceiling and any upstream slowness pushed it over.
-
-Against a simulated upstream at a 300ms round-trip
-(`tests/search-throughput.test.ts`), the same work now completes in ~14s
-instead of ~45s, with a measured peak of 10 req/s — NCBI's documented ceiling
-with an API key, and no higher. The rate holds under failure too: with every
-phrase returning 503 and each retrying twice, the measured peak is 9 req/s.
-
-A partial or rate-limited result is cached for a minute rather than six hours,
-so the retry its status message advises actually reaches NCBI again.
-
-Note the scope of that guarantee: the limiter is per server instance, and
-NCBI's quota is per API key. A deployment running several instances
-concurrently can still exceed the rate in aggregate, so the defaults leave
-headroom and `Retry-After` on a 429 remains the backstop.
+  - Per-client rate limiting and response caching (both optional, through Upstash Redis).
+  - Per-request timeouts, so one hung upstream call cannot consume the whole serverless function budget.
+  - Source diagnostics mark likely partial or rate-limited upstream retrievals.
+  - A partial or rate-limited result is cached for a minute rather than six hours, so the retry its status message advises actually reaches NCBI again.
 
 ## Sharing and export
 
-- Searches are deep-linkable: `/?q=BRAF%20p.V600E&assembly=GRCh38` reruns the
-  search on load, and browser back/forward moves between searches.
-- Results export to CSV — articles, ClinVar records, and the full list of
-  searched representations — for supplementary tables. Fields are quoted per
-  RFC 4180 and values beginning `=`, `+`, `-` or `@` are prefixed so a
-  spreadsheet reads them as text rather than formulas.
+- Searches are deep-linkable: `/?q=BRAF%20p.V600E&assembly=GRCh38` reruns the search on load, and browser back and forward moves between searches.
+- Results export to CSV (ClinVar records and the full list of searched representations).
+- Fields are quoted per RFC 4180, and values beginning `=`, `+`, `-` or `@` are prefixed so a spreadsheet reads them as text rather than formulas.
 
 ## Testing
 
 ```bash
-pnpm test
+npm test
 ```
 
-Vitest covers the input classifier, the variant enumerator (including
-consequence attribution when VEP returns duplicate or missing transcript ids),
-search-term construction, CSV export, the cache wrapper, the rate limiter, and
-an end-to-end throughput test that asserts both the latency budget and rate
-compliance against a simulated upstream.
+Vitest covers the input classifier, the variant enumerator, search-term construction, ClinVar querying and filtering, penetrance parsing, statistics and base rates, CSV export, the cache wrapper, the rate limiter, and a throughput test that asserts both the latency budget and rate compliance against a simulated upstream.
 
-`lib/hgvs/convert.ts` still depends on live Ensembl VEP and is exercised
-manually.
+`lib/hgvs/convert.ts` still depends on live Ensembl VEP and is exercised manually.
 
 ## Deployment (Vercel)
 
 1. Import the repo on Vercel.
 2. Set env vars: `NCBI_API_KEY`, `NCBI_EMAIL` (and optionally Upstash vars).
-3. Deploy — no other config needed.
+3. Deploy. No other config is needed.

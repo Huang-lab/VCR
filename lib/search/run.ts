@@ -1,31 +1,15 @@
 /**
  * The search operations behind the API routes.
  *
- * Keeping these here (rather than inline in each route) lets a single request
- * run the PubMed and ClinVar searches concurrently in one process, where they
- * share one Entrez rate-limit budget. Split across two HTTP requests they can
- * land on separate serverless instances, each assuming the whole NCBI quota.
+ * Keeping these here (rather than inline in each route) keeps the Entrez
+ * rate-limit budget in one process and makes the search testable.
  */
 
 import type { EntrezConfig } from "@/lib/entrez/base";
-import { searchPubmedForVariantsDetailed } from "@/lib/pubmed/entrez";
-import { searchEuropePmcForVariantsDetailed } from "@/lib/pubmed/europepmc";
 import { searchClinvarForVariantsDetailed } from "@/lib/clinvar/entrez";
 import { filterClinvarRecords } from "@/lib/clinvar/filter";
 import type { ClinvarRecord } from "@/lib/clinvar/entrez";
-import {
-  Article,
-  SourceStatus,
-  buildStatusFromDiagnostics,
-  failedSourceStatus,
-  mergeArticles,
-} from "@/lib/search/results";
-
-export interface PubmedPayload {
-  count: number;
-  articles: Article[];
-  status: SourceStatus;
-}
+import { SourceStatus, buildStatusFromDiagnostics, failedSourceStatus } from "@/lib/search/results";
 
 export interface ClinvarPayload {
   count: number;
@@ -40,27 +24,8 @@ export function entrezConfigFromEnv(): EntrezConfig {
   return {
     apiKey: process.env.NCBI_API_KEY,
     email: process.env.NCBI_EMAIL,
-    tool: "varcrawl",
+    tool: "vcr",
   };
-}
-
-/** A skipped literature search, reported as an explicit incomplete status. */
-export function skippedPubmedPayload(message: string): PubmedPayload {
-  return {
-    count: 0,
-    articles: [],
-    status: {
-      complete: false,
-      likelyRateLimited: false,
-      likelyPartial: false,
-      message,
-    },
-  };
-}
-
-/** An empty payload for a source whose search threw, so the rest still renders. */
-export function failedPubmedPayload(): PubmedPayload {
-  return { count: 0, articles: [], status: failedSourceStatus("PubMed") };
 }
 
 export function failedClinvarPayload(
@@ -74,40 +39,6 @@ export function failedClinvarPayload(
     proteinForms,
     status: failedSourceStatus("ClinVar"),
     records: [],
-  };
-}
-
-/**
- * Search PubMed and Europe PMC for every phrase and merge by PMID. The two
- * indexes are different hosts with separate quotas, so they run concurrently.
- */
-export async function runPubmedSearch(
-  variants: string[],
-  cfg: EntrezConfig,
-): Promise<PubmedPayload> {
-  const [pubmedRes, europePmcRes] = await Promise.all([
-    searchPubmedForVariantsDetailed(variants, cfg),
-    searchEuropePmcForVariantsDetailed(variants, { deadline: cfg.deadline }),
-  ]);
-
-  const articles = mergeArticles(
-    pubmedRes.articles,
-    europePmcRes.articles as Article[],
-  );
-
-  return {
-    count: articles.length,
-    articles,
-    status: buildStatusFromDiagnostics(
-      {
-        likelyPartial:
-          pubmedRes.diagnostics.likelyPartial || europePmcRes.diagnostics.likelyPartial,
-        likelyRateLimited:
-          pubmedRes.diagnostics.likelyRateLimited ||
-          europePmcRes.diagnostics.likelyRateLimited,
-      },
-      "PubMed",
-    ),
   };
 }
 

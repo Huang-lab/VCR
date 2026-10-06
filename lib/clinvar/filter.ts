@@ -10,7 +10,7 @@
  * Strict mode: when we have both a gene and a set of protein forms, a record
  * must match BOTH. When only one signal is available we still enforce that
  * signal. When neither is available (pure rsID / bare HGVSg with no resolved
- * gene), we pass records through unchanged — there's nothing to validate.
+ * gene), we pass records through unchanged - there's nothing to validate.
  */
 
 import type { ClinvarRecord } from "./entrez";
@@ -19,7 +19,7 @@ export interface ClinvarFilterContext {
   /** Gene symbol from the classified input or canonical variant. */
   gene?: string;
   /**
-   * Every protein form to accept — mix of 1-letter (G12D, p.G12D) and
+   * Every protein form to accept - mix of 1-letter (G12D, p.G12D) and
    * 3-letter (Gly12Asp, p.Gly12Asp). Caller should emit both.
    */
   proteinForms: string[];
@@ -52,7 +52,7 @@ export function filterClinvarRecords(
   const hasGene = !!ctx.gene;
   const hasForms = ctx.proteinForms.length > 0;
 
-  // No validation signal available — pass everything through.
+  // No validation signal available - pass everything through.
   if (!hasGene && !hasForms) {
     return { kept: records, dropped: [] };
   }

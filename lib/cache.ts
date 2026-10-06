@@ -41,10 +41,10 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
  *
  * The value travels in the request body, not the URL. Upstash accepts either,
  * but a URL-embedded value has to survive every proxy's request-line limit
- * (commonly 8 KB), and these payloads are far larger: a 50-article PubMed
- * response percent-encodes to roughly 37 KB of URL. Sending those as a path
- * segment meant the write was rejected and — because cache failures are
- * deliberately swallowed — the cache silently never populated for exactly the
+ * (commonly 8 KB), and these payloads are far larger: a search
+ * response with many records percent-encodes to roughly 37 KB of URL. Sending those as a path
+ * segment meant the write was rejected and - because cache failures are
+ * deliberately swallowed - the cache silently never populated for exactly the
  * expensive queries it exists to serve.
  *
  * Returns whether the value was stored, so callers can surface cache health.
@@ -85,8 +85,8 @@ export async function cacheSet<T>(key: string, value: T, ttlSec = 86400): Promis
  * Two independent FNV-1a lanes (different offset bases, one over the string
  * reversed) plus the input length give a 64-bit-wide key. A single 32-bit lane
  * reaches a ~50% chance of collision after only ~77k distinct queries, and a
- * collision here would serve one variant's articles under another variant's
- * key — a wrong answer, not just a slow one. Widening the digest makes that
+ * collision here would serve one variant's records under another variant's
+ * key - a wrong answer, not just a slow one. Widening the digest makes that
  * negligible for any realistic key space.
  */
 export function hash(input: unknown): string {

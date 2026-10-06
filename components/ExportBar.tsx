@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  articlesToCsv,
   clinvarToCsv,
   slugifyQuery,
   variantsToCsv,
@@ -18,7 +17,6 @@ interface TranscriptGroupLike {
 interface Props {
   query: string;
   shareUrl: string;
-  articles: Parameters<typeof articlesToCsv>[0];
   records: Parameters<typeof clinvarToCsv>[0];
   groups?: {
     universal: { text: string; label: string }[];
@@ -31,7 +29,7 @@ interface Props {
  * Hand the browser a generated file without leaking the object URL.
  *
  * The leading U+FEFF is for Excel on Windows, which ignores the charset in the
- * MIME type when opening a local file and falls back to the system code page —
+ * MIME type when opening a local file and falls back to the system code page -
  * without the BOM, an author name like "Müller" lands in a supplementary table
  * as "MÃ¼ller". It is written here rather than in `toCsv` so the serializer
  * stays byte-exact for programmatic callers.
@@ -75,7 +73,7 @@ function variantRows(groups: Props["groups"]): CsvVariantRow[] {
   return rows;
 }
 
-export function ExportBar({ query, shareUrl, articles, records, groups }: Props) {
+export function ExportBar({ query, shareUrl, records, groups }: Props) {
   const [copied, setCopied] = useState(false);
   const stem = slugifyQuery(query);
   const rows = variantRows(groups);
@@ -94,14 +92,6 @@ export function ExportBar({ query, shareUrl, articles, records, groups }: Props)
   return (
     <div className="export-bar" aria-label="Export and share results">
       <span className="export-label">Export</span>
-      <button
-        type="button"
-        onClick={() => downloadText(`${stem}-pubmed.csv`, articlesToCsv(articles))}
-        disabled={articles.length === 0}
-        title={articles.length === 0 ? "No articles to export" : "Download articles as CSV"}
-      >
-        Articles CSV ({articles.length})
-      </button>
       <button
         type="button"
         onClick={() => downloadText(`${stem}-clinvar.csv`, clinvarToCsv(records))}

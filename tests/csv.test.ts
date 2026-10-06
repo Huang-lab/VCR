@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ARTICLE_CSV_HEADERS,
-  articlesToCsv,
   clinvarToCsv,
   csvField,
   slugifyQuery,
@@ -49,33 +47,6 @@ describe("toCsv", () => {
 
   it("emits only the header when there are no rows", () => {
     expect(toCsv(["a", "b"], [])).toBe("a,b");
-  });
-});
-
-describe("articlesToCsv", () => {
-  it("round-trips a title containing commas and quotes", () => {
-    const csv = articlesToCsv([
-      {
-        pmid: "12345678",
-        title: 'BRAF V600E in melanoma: a "landmark", multicenter study',
-        authors: ["Smith JA", "Doe RB"],
-        journal: "Nature",
-        pubDate: "2023 Jun 15",
-        doi: "10.1038/x",
-        matchedBy: ["V600E", "p.Val600Glu"],
-        sources: ["PubMed", "Europe PMC"],
-      },
-    ]);
-
-    const [header, row] = csv.split("\r\n");
-    expect(header).toBe(ARTICLE_CSV_HEADERS.join(","));
-    expect(row).toContain('"BRAF V600E in melanoma: a ""landmark"", multicenter study"');
-    expect(row).toContain("Smith JA; Doe RB");
-    expect(row).toContain("https://pubmed.ncbi.nlm.nih.gov/12345678/");
-
-    // Parsing the row back must recover the original field count.
-    expect(parseCsvRow(row)).toHaveLength(ARTICLE_CSV_HEADERS.length);
-    expect(parseCsvRow(row)[1]).toBe('BRAF V600E in melanoma: a "landmark", multicenter study');
   });
 });
 

@@ -21,7 +21,7 @@ function brafV600E(): CanonicalVariant {
     refAllele: "A",
     altAllele: "T",
     consequences: [
-      // Alt transcript first in the input — the enumerator should reorder MANE first
+      // Alt transcript first in the input - the enumerator should reorder MANE first
       {
         gene: "BRAF",
         transcript: "NM_001354609.2",

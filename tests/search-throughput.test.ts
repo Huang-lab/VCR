@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * End-to-end throughput and rate-compliance test against a simulated NCBI /
- * EBI, standing in for live calls (which need network access and would be
+ * End-to-end throughput and rate-compliance test against a simulated NCBI,
+ * standing in for live calls (which need network access and would be
  * non-deterministic anyway).
  *
  * Two things must hold at once, and they pull against each other:
@@ -15,7 +15,6 @@ const RTT_MS = 300; // representative round-trip to eutils
 const PHRASES = 50; // the per-database phrase cap
 
 interface CallRecord {
-  host: "ncbi" | "ebi";
   at: number;
 }
 
@@ -30,8 +29,7 @@ function installUpstreamSimulator(calls: CallRecord[], t0: () => number) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      const host: CallRecord["host"] = url.includes("ebi.ac.uk") ? "ebi" : "ncbi";
-      calls.push({ host, at: Date.now() - t0() });
+      calls.push({ at: Date.now() - t0() });
 
       await new Promise((r) => setTimeout(r, RTT_MS));
 
@@ -42,11 +40,9 @@ function installUpstreamSimulator(calls: CallRecord[], t0: () => number) {
       if (url.includes("/esummary.fcgi")) {
         const params = new URL(url).searchParams;
         const ids = (params.get("id") ?? "").split(",").filter(Boolean);
-        const isClinvar = params.get("db") === "clinvar";
         const result: Record<string, unknown> = { uids: ids };
         for (const id of ids) {
-          result[id] = isClinvar
-            ? {
+          result[id] = {
                 uid: id,
                 // Shaped like a real ClinVar title: the gene/protein post-filter
                 // requires the protein form to appear here.
@@ -59,35 +55,9 @@ function installUpstreamSimulator(calls: CallRecord[], t0: () => number) {
                   last_evaluated: "2023/01/01",
                 },
                 trait_set: [{ trait_name: "Melanoma" }],
-              }
-            : {
-                uid: id,
-                title: `Study of a variant ${id}`,
-                authors: [{ name: "Smith JA" }],
-                fulljournalname: "Journal of Test Oncology",
-                pubdate: "2023 Jun 15",
-                articleids: [{ idtype: "doi", value: `10.1000/test.${id}` }],
               };
         }
         return json({ result });
-      }
-      if (url.includes("ebi.ac.uk")) {
-        const q = new URL(url).searchParams.get("query") ?? "";
-        return json({
-          resultList: {
-            result: idsFor(q)
-              .slice(0, 20)
-              .map((id) => ({
-                source: "MED",
-                id,
-                pmid: id,
-                title: `Europe PMC record ${id}`,
-                authorString: "Smith JA, Doe RB",
-                journalTitle: "Journal of Test Oncology",
-                firstPublicationDate: "2023-06-15",
-              })),
-          },
-        });
       }
       return json({});
     }),
@@ -102,8 +72,8 @@ function json(body: unknown): Response {
 }
 
 /** Highest number of calls to one host within any 1-second sliding window. */
-function peakRatePerSec(calls: CallRecord[], host: CallRecord["host"]): number {
-  const times = calls.filter((c) => c.host === host).map((c) => c.at).sort((a, b) => a - b);
+function peakRatePerSec(calls: CallRecord[]): number {
+  const times = calls.map((c) => c.at).sort((a, b) => a - b);
   let peak = 0;
   for (const t of times) {
     peak = Math.max(peak, times.filter((o) => o >= t && o < t + 1000).length);
@@ -118,9 +88,6 @@ const PACING_VARS = [
   "NCBI_RATE_PER_SEC",
   "NCBI_CONCURRENCY",
   "NCBI_BURST",
-  "EUROPEPMC_RATE_PER_SEC",
-  "EUROPEPMC_CONCURRENCY",
-  "EUROPEPMC_BURST",
 ] as const;
 
 describe("search throughput against a simulated upstream", () => {
@@ -153,61 +120,51 @@ describe("search throughput against a simulated upstream", () => {
     vi.restoreAllMocks();
   });
 
-  it("runs PubMed and ClinVar concurrently inside the serverless budget and inside the NCBI rate", async () => {
-    const { runPubmedSearch, runClinvarSearch } = await import("@/lib/search/run");
-    const cfg = { apiKey: "test-key", email: "test@example.com", tool: "varcrawl" };
+  it("runs a full-budget ClinVar search inside the serverless budget and inside the NCBI rate", async () => {
+    const { runClinvarSearch } = await import("@/lib/search/run");
+    const cfg = { apiKey: "test-key", email: "test@example.com", tool: "vcr" };
 
     start = Date.now();
-    const [pubmed, clinvar] = await Promise.all([
-      runPubmedSearch(phrases(PHRASES), cfg),
-      runClinvarSearch(phrases(PHRASES), cfg, {
-        gene: "BRAF",
-        proteinForms: ["V600E", "p.V600E", "Val600Glu", "p.Val600Glu"],
-      }),
-    ]);
+    const clinvar = await runClinvarSearch(phrases(PHRASES), cfg, {
+      gene: "BRAF",
+      proteinForms: ["V600E", "p.V600E", "Val600Glu", "p.Val600Glu"],
+    });
     const elapsed = Date.now() - start;
 
-    // Both searches returned real, merged results.
-    expect(pubmed.count).toBeGreaterThan(0);
-    expect(pubmed.status.complete).toBe(true);
     expect(clinvar.count).toBeGreaterThan(0);
     expect(clinvar.status.complete).toBe(true);
     expect(clinvar.records[0].clinicalSignificance).toBe("Pathogenic");
     expect(clinvar.records[0].gene).toBe("BRAF");
-    expect(pubmed.articles[0].sources).toContain("PubMed");
 
-    // The serial predecessor issued >=100 NCBI calls at one in flight, each
-    // preceded by a 110ms pause: over 20s for PubMed alone, and ClinVar ran
-    // after it. Well inside the ceiling now.
-    const ncbiCalls = calls.filter((c) => c.host === "ncbi").length;
-    expect(ncbiCalls).toBeGreaterThanOrEqual(2 * PHRASES);
-    const serialEstimate = ncbiCalls * (RTT_MS + 110);
+    // A serial client issues one call at a time, each preceded by a 110ms
+    // pause. Concurrent, paced calls finish well inside the ceiling.
+    const serialEstimate = calls.length * (RTT_MS + 110);
+    expect(calls.length).toBeGreaterThanOrEqual(PHRASES);
     expect(elapsed).toBeLessThan(serialEstimate / 3);
     expect(elapsed).toBeLessThan(30_000);
 
-    // Rate compliance: NCBI grants 10 req/s with an API key, and a token
-    // bucket's worst-case one-second window is burst + rate. The defaults are
-    // chosen so that sum lands on the ceiling, never above it.
-    expect(peakRatePerSec(calls, "ncbi")).toBeLessThanOrEqual(10);
-    expect(peakRatePerSec(calls, "ebi")).toBeLessThanOrEqual(10);
+    // NCBI grants 10 req/s with an API key, and a token bucket's worst-case
+    // one-second window is burst + rate. The defaults land on the ceiling.
+    expect(peakRatePerSec(calls)).toBeLessThanOrEqual(10);
 
     // eslint-disable-next-line no-console
     console.log(
-      `[measured] ${ncbiCalls} NCBI + ${calls.length - ncbiCalls} EBI calls in ${elapsed}ms ` +
-        `(serial equivalent ~${Math.round(serialEstimate / 1000)}s); ` +
-        `peak NCBI ${peakRatePerSec(calls, "ncbi")} req/s, peak EBI ${peakRatePerSec(calls, "ebi")} req/s`,
+      `[measured] ${calls.length} NCBI calls in ${elapsed}ms ` +
+        `(serial equivalent ~${Math.round(serialEstimate / 1000)}s); peak ${peakRatePerSec(calls)} req/s`,
     );
   }, 60_000);
 
   it("throttles to the lower anonymous rate when no API key is configured", async () => {
-    const { runPubmedSearch } = await import("@/lib/search/run");
+    const { runClinvarSearch } = await import("@/lib/search/run");
 
-    start = Date.now();
     // 8 phrases only: without a key the sustained rate is ~2.5 req/s.
-    await runPubmedSearch(phrases(8), { email: "test@example.com", tool: "varcrawl" });
+    await runClinvarSearch(phrases(8), { email: "test@example.com", tool: "vcr" }, {
+      gene: "BRAF",
+      proteinForms: ["p.Val600Glu"],
+    });
 
     // NCBI allows 3 req/s without a key; stay within it.
-    expect(peakRatePerSec(calls, "ncbi")).toBeLessThanOrEqual(3);
+    expect(peakRatePerSec(calls)).toBeLessThanOrEqual(3);
   }, 60_000);
 
   it("reports an incomplete search when phrases are rate-limited upstream", async () => {
@@ -223,8 +180,8 @@ describe("search throughput against a simulated upstream", () => {
       }),
     );
 
-    const { runPubmedSearch } = await import("@/lib/search/run");
-    const res = await runPubmedSearch(phrases(3), { apiKey: "k", tool: "varcrawl" });
+    const { runClinvarSearch } = await import("@/lib/search/run");
+    const res = await runClinvarSearch(phrases(3), { apiKey: "k", tool: "vcr" }, { proteinForms: [] });
 
     expect(res.count).toBe(0);
     expect(res.status.complete).toBe(false);

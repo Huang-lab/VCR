@@ -3,20 +3,9 @@
  *
  * Exporting is the point at which results leave the app for a manuscript's
  * supplementary table or a spreadsheet, so the escaping has to be right:
- * article titles routinely contain commas, quotes and the occasional newline,
- * and ClinVar condition lists are semicolon-delimited.
+ * ClinVar titles routinely contain commas and quotes, and condition lists are
+ * semicolon-delimited.
  */
-
-export interface CsvArticle {
-  pmid: string;
-  title: string;
-  authors: string[];
-  journal: string;
-  pubDate: string;
-  doi?: string;
-  matchedBy: string[];
-  sources?: string[];
-}
 
 export interface CsvClinvarRecord {
   uid: string;
@@ -58,35 +47,6 @@ export function toCsv(headers: string[], rows: unknown[][]): string {
   const lines = [headers.map(csvField).join(",")];
   for (const row of rows) lines.push(row.map(csvField).join(","));
   return lines.join("\r\n");
-}
-
-export const ARTICLE_CSV_HEADERS = [
-  "pmid",
-  "title",
-  "authors",
-  "journal",
-  "pub_date",
-  "doi",
-  "sources",
-  "matched_representations",
-  "pubmed_url",
-];
-
-export function articlesToCsv(articles: CsvArticle[]): string {
-  return toCsv(
-    ARTICLE_CSV_HEADERS,
-    articles.map((a) => [
-      a.pmid,
-      a.title,
-      a.authors,
-      a.journal,
-      a.pubDate,
-      a.doi ?? "",
-      a.sources ?? [],
-      a.matchedBy,
-      `https://pubmed.ncbi.nlm.nih.gov/${a.pmid}/`,
-    ]),
-  );
 }
 
 export const CLINVAR_CSV_HEADERS = [

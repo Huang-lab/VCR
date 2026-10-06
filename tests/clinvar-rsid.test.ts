@@ -69,7 +69,7 @@ describe("ClinVar rsID elink path", () => {
     const { searchClinvarForVariantsDetailed } = await import("@/lib/clinvar/entrez");
     const res = await searchClinvarForVariantsDetailed(["rs113488022"], {
       apiKey: "k",
-      tool: "varcrawl",
+      tool: "vcr",
     });
 
     expect(counts.elink).toBe(1);
@@ -94,7 +94,7 @@ describe("ClinVar rsID elink path", () => {
     const rsids = Array.from({ length: 12 }, (_, i) => `rs${1000 + i}`);
 
     const outcome = await Promise.race([
-      searchClinvarForVariantsDetailed(rsids, { apiKey: "k", tool: "varcrawl" }).then(
+      searchClinvarForVariantsDetailed(rsids, { apiKey: "k", tool: "vcr" }).then(
         (r) => r.records.length,
       ),
       new Promise<string>((r) => setTimeout(() => r("timed out"), 15000)),

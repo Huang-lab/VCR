@@ -60,7 +60,7 @@ describe("buildGeneProteinQueries", () => {
   });
 
   it("drops forms that would need quoting", () => {
-    // `p.Val600Glu*` is not alphanumeric — skip it rather than emit a term that
+    // `p.Val600Glu*` is not alphanumeric - skip it rather than emit a term that
     // NCBI's parser could misinterpret.
     const terms = buildGeneProteinQueries("BRAF", ["Val600Glu*", "Val600Glu"]);
     expect(terms).toEqual([

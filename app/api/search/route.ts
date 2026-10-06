@@ -9,21 +9,15 @@ import {
   ExpansionResult,
   MAX_SEARCH_TERMS,
   buildProteinForms,
-  buildPubmedSearchTerms,
   collectVariants,
-  literatureSearchBlockedReason,
   normalizeTerms,
   resolveGene,
 } from "@/lib/search/terms";
 import {
   ClinvarPayload,
-  PubmedPayload,
   entrezConfigFromEnv,
   failedClinvarPayload,
-  failedPubmedPayload,
   runClinvarSearch,
-  runPubmedSearch,
-  skippedPubmedPayload,
 } from "@/lib/search/run";
 
 export const runtime = "nodejs";
@@ -35,7 +29,7 @@ const COMPLETE_TTL_SEC = 3600 * 6;
 /**
  * Cache lifetime for a result that upstream reported as partial or
  * rate-limited. Such a response tells the reader to retry shortly, so it must
- * not be served for hours — but a short TTL still absorbs a refresh storm.
+ * not be served for hours - but a short TTL still absorbs a refresh storm.
  */
 const INCOMPLETE_TTL_SEC = 60;
 
@@ -43,16 +37,12 @@ const INCOMPLETE_TTL_SEC = 60;
 const SOFT_DEADLINE_MS = Number(process.env.SEARCH_SOFT_DEADLINE_MS) || 30_000;
 
 /**
- * One request that expands a mutation and searches every source.
+ * One request that expands a variant and searches ClinVar.
  *
- * The UI previously made three sequential round-trips (expand, then ClinVar,
- * then PubMed) because two concurrent NCBI searches from the browser could
- * each assume the full Entrez quota. Running them inside one request means
- * they share the process-wide rate limiter, so they can go in parallel without
- * exceeding NCBI's limit — and the client waits for one round-trip, not three.
+ * Doing both in one request keeps the Entrez search inside one process, so it
+ * shares that process's rate limiter, and the client waits for one round-trip.
  *
- * `/api/expand`, `/api/pubmed` and `/api/clinvar` remain available for
- * programmatic use.
+ * `/api/expand` and `/api/clinvar` remain available for programmatic use.
  */
 
 interface Body {
@@ -130,59 +120,36 @@ async function handleSearch(req: NextRequest) {
   // time to fetch summaries and send what was found.
   const cfg = { ...entrezConfigFromEnv(), deadline: Date.now() + SOFT_DEADLINE_MS };
 
-  // Both searches share this process's Entrez limiter, so the aggregate rate
-  // stays within quota while their latencies overlap.
-  //
-  // allSettled, not all: one source failing must not discard the other source
-  // and the expansion we already computed.
-  const runPubmed = () =>
-    plan.blocked
-      ? Promise.resolve(skippedPubmedPayload(plan.blocked))
-      : runPubmedSearch(plan.pubmedTerms, cfg);
+  // allSettled, not all: a ClinVar failure must not discard the expansion we
+  // already computed.
   const runClinvar = () =>
     runClinvarSearch(plan.clinvarTerms, cfg, { gene: plan.gene, proteinForms: plan.proteinForms });
-  const settlePubmed = (r: PromiseSettledResult<PubmedPayload>) =>
-    r.status === "fulfilled" ? r.value : failedPubmedPayload();
   const settleClinvar = (r: PromiseSettledResult<ClinvarPayload>) =>
     r.status === "fulfilled" ? r.value : failedClinvarPayload(plan.gene, plan.proteinForms);
   const cacheResult = async (resp: SearchResponseBody) => {
-    const complete = resp.pubmed.status.complete && resp.clinvar.status.complete;
-    await cacheSet(cacheKey, resp, complete ? COMPLETE_TTL_SEC : INCOMPLETE_TTL_SEC);
+    await cacheSet(cacheKey, resp, resp.clinvar.status.complete ? COMPLETE_TTL_SEC : INCOMPLETE_TTL_SEC);
   };
 
   if (!wantsStream) {
-    const [pubmedRes, clinvarRes] = await Promise.allSettled([runPubmed(), runClinvar()]);
-    const resp: SearchResponseBody = {
-      ...plan.base,
-      pubmed: settlePubmed(pubmedRes),
-      clinvar: settleClinvar(clinvarRes),
-    };
+    const [clinvarRes] = await Promise.allSettled([runClinvar()]);
+    const resp: SearchResponseBody = { ...plan.base, clinvar: settleClinvar(clinvarRes) };
     await cacheResult(resp);
     return NextResponse.json(resp);
   }
 
-  // Streaming: send the expansion as soon as it exists and each source as soon
-  // as it finishes, so the page can show what it knows without waiting for the
-  // slowest upstream.
+  // Streaming: send the expansion as soon as it exists and ClinVar when it
+  // finishes, so the page can show the variant and penetrance without waiting
+  // for the slower upstream.
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
       const send = (event: SearchEvent) => controller.enqueue(enc.encode(`${JSON.stringify(event)}\n`));
       try {
         send({ type: "expand", data: plan.base });
-        const [pubmed, clinvar] = await Promise.all([
-          Promise.allSettled([runPubmed()]).then(([r]) => {
-            const v = settlePubmed(r);
-            send({ type: "pubmed", data: v });
-            return v;
-          }),
-          Promise.allSettled([runClinvar()]).then(([r]) => {
-            const v = settleClinvar(r);
-            send({ type: "clinvar", data: v });
-            return v;
-          }),
-        ]);
-        await cacheResult({ ...plan.base, pubmed, clinvar });
+        const [res] = await Promise.allSettled([runClinvar()]);
+        const clinvar = settleClinvar(res);
+        send({ type: "clinvar", data: clinvar });
+        await cacheResult({ ...plan.base, clinvar });
         send({ type: "done" });
       } catch (e) {
         console.error("[api/search] stream failure", e);
@@ -208,13 +175,10 @@ async function planSearch(query: string, assembly: Assembly, classified: Classif
     variants: flattenVariants(groups),
   };
   const clinvarTerms = normalizeTerms(collectVariants(expand), MAX_SEARCH_TERMS);
-  const pubmedTerms = normalizeTerms(buildPubmedSearchTerms(expand), MAX_SEARCH_TERMS);
   return {
     gene: resolveGene(expand),
     proteinForms: buildProteinForms(expand),
     clinvarTerms,
-    pubmedTerms,
-    blocked: literatureSearchBlockedReason(expand),
     base: {
       input: query,
       assembly,
@@ -222,7 +186,7 @@ async function planSearch(query: string, assembly: Assembly, classified: Classif
       canonical,
       groups,
       variants: expand.variants,
-      searchTerms: { pubmed: pubmedTerms, clinvar: clinvarTerms },
+      searchTerms: { clinvar: clinvarTerms },
     },
   };
 }
@@ -230,13 +194,11 @@ async function planSearch(query: string, assembly: Assembly, classified: Classif
 type ExpandBody = Awaited<ReturnType<typeof planSearch>>["base"];
 
 interface SearchResponseBody extends ExpandBody {
-  pubmed: PubmedPayload;
   clinvar: ClinvarPayload;
 }
 
 type SearchEvent =
   | { type: "expand"; data: ExpandBody }
-  | { type: "pubmed"; data: PubmedPayload }
   | { type: "clinvar"; data: ClinvarPayload }
   | { type: "done" }
   | { type: "error"; error: string };
@@ -245,11 +207,10 @@ const NDJSON = "application/x-ndjson";
 const NDJSON_HEADERS = { "Content-Type": `${NDJSON}; charset=utf-8`, "Cache-Control": "no-store" };
 
 function eventsFromResult(r: SearchResponseBody): SearchEvent[] {
-  const { pubmed, clinvar, ...base } = r;
+  const { clinvar, ...base } = r;
   return [
     { type: "expand", data: base },
     { type: "clinvar", data: clinvar },
-    { type: "pubmed", data: pubmed },
     { type: "done" },
   ];
 }

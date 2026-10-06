@@ -174,7 +174,7 @@ describe("mapWithLimiter", () => {
 
 
 describe("envNumber", () => {
-  const NAME = "VARCRAWL_TEST_ENV_NUMBER";
+  const NAME = "VCR_TEST_ENV_NUMBER";
   const original = process.env[NAME];
 
   afterEach(() => {

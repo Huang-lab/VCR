@@ -43,7 +43,7 @@ describe("cacheSet", () => {
 
     const { cacheSet } = await loadCache(UPSTASH);
 
-    // A realistic /api/pubmed response: 200 articles.
+    // A realistic large search response: 200 records.
     const big = {
       count: 200,
       articles: Array.from({ length: 200 }, (_, i) => ({
@@ -56,7 +56,7 @@ describe("cacheSet", () => {
       })),
     };
 
-    await expect(cacheSet("pubmed:abc", big, 3600)).resolves.toBe(true);
+    await expect(cacheSet("search:abc", big, 3600)).resolves.toBe(true);
     expect(calls).toHaveLength(1);
 
     const { url, init } = calls[0];

@@ -1,4 +1,4 @@
-/** Decodes the HTML/XML entities that NCBI and Europe PMC leave in titles. */
+/** Decodes the HTML/XML entities that NCBI leaves in titles. */
 export function decodeEntities(s: string): string {
   return s
     .replace(/&lt;/g, "<")

@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VarCrawl — search PubMed by mutation",
+  title: "VCR - variant cancer risk",
   description:
-    "VarCrawl by the Huang Lab at Mount Sinai (labs.icahn.mssm.edu/kuanhuanglab): paste a mutation in any HGVS notation and find every PubMed article that mentions it under any common name.",
+    "VCR by the Huang Lab at Mount Sinai (labs.icahn.mssm.edu/kuanhuanglab): look up a variant and see its penetrance against disease base rates, alongside ClinVar classifications.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

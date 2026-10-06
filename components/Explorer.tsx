@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SearchForm } from "@/components/SearchForm";
 import { VariantPanel } from "@/components/VariantPanel";
 import { VariantHeader } from "@/components/VariantHeader";
-import { ResultsList } from "@/components/ResultsList";
 import { ClinvarResults } from "@/components/ClinvarResults";
 import { ExportBar } from "@/components/ExportBar";
 import { DataSource } from "@/components/penetrance/DataSource";
@@ -72,21 +71,6 @@ interface ExpandPart {
   variants: VariantString[];
 }
 
-interface PubmedPart {
-  count: number;
-  status?: SourceStatus;
-  articles: {
-    pmid: string;
-    title: string;
-    authors: string[];
-    journal: string;
-    pubDate: string;
-    doi?: string;
-    matchedBy: string[];
-    sources?: string[];
-  }[];
-}
-
 interface ClinvarPart {
   count: number;
   unfilteredCount?: number;
@@ -106,10 +90,9 @@ interface ClinvarPart {
   }[];
 }
 
-/** Response of POST /api/search: expansion plus both searches in one payload. */
+/** Response of POST /api/search: expansion plus the ClinVar search in one payload. */
 interface SearchResponse extends ExpandPart {
-  searchTerms?: { pubmed: string[]; clinvar: string[] };
-  pubmed: PubmedPart;
+  searchTerms?: { clinvar: string[] };
   clinvar: ClinvarPart;
   error?: string;
 }
@@ -137,7 +120,6 @@ interface Submitted {
 type StreamEvent =
   | { type: "expand"; data: ExpandPart & { searchTerms?: SearchResponse["searchTerms"] } }
   | { type: "clinvar"; data: ClinvarPart }
-  | { type: "pubmed"; data: PubmedPart }
   | { type: "done" }
   | { type: "error"; error: string };
 
@@ -202,14 +184,14 @@ export function Explorer() {
         }
 
         // Each line is one event; apply it as it arrives so the page fills in
-        // piece by piece (variant, then whichever source finishes first).
+        // piece by piece (variant, then ClinVar).
         const apply = (ev: StreamEvent) => {
           if (controller.signal.aborted) return;
           if (ev.type === "error") {
             setError(ev.error);
           } else if (ev.type === "expand") {
             setResponse({ key: keyOf(request), parts: ev.data });
-          } else if (ev.type === "clinvar" || ev.type === "pubmed") {
+          } else if (ev.type === "clinvar") {
             setResponse((r) => (r?.key === keyOf(request) ? { ...r, parts: { ...r.parts, [ev.type]: ev.data } } : r));
           }
         };
@@ -296,9 +278,8 @@ export function Explorer() {
   }, [runSearch, goHome]);
 
   const parts = submitted && response?.key === keyOf(submitted) ? response.parts : null;
-  // `result` is the expansion; ClinVar and PubMed attach to it as they finish.
+  // `result` is the expansion; ClinVar attaches to it when it finishes.
   const result = parts && "canonical" in parts ? (parts as ExpandPart) : null;
-  const pubmed = parts?.pubmed;
   const clinvar = parts?.clinvar;
   const headline = result ? pickHeadline(result) : undefined;
 
@@ -325,10 +306,10 @@ export function Explorer() {
       <header className="app-header">
         <h1>
           <button type="button" className="home-link" onClick={() => goHome(true)}>
-            VarCrawl
+            VCR
           </button>
         </h1>
-        <p className="subtitle">Look up a variant: penetrance, ClinVar, and literature in one search.</p>
+        <p className="subtitle">Look up a variant: penetrance and ClinVar in one search.</p>
       </header>
 
       <SearchForm
@@ -371,13 +352,6 @@ export function Explorer() {
                 {clinvar ? `${clinvar.count} record${clinvar.count === 1 ? "" : "s"}` : loading ? "Checking ClinVar" : "Search failed"}
               </span>
             </div>
-            <div className={`tile${pubmed || !loading ? "" : " pending"}`}>
-              <span className="tile-label">Literature</span>
-              <strong className="tile-value">
-                {pubmed ? pubmed.count.toLocaleString("en-US") : loading ? "Searching..." : "Unavailable"}
-              </strong>
-              <span className="tile-sub">PubMed / Europe PMC articles</span>
-            </div>
           </div>
 
           {penetrance && penetrance.matches.length > 0 ? (
@@ -404,7 +378,6 @@ export function Explorer() {
                 <ExportBar
                   query={result.input}
                   shareUrl={shareUrlFor(result.input, result.assembly)}
-                  articles={pubmed?.articles ?? []}
                   records={clinvar?.records ?? []}
                   groups={result.groups}
                 />
@@ -412,12 +385,12 @@ export function Explorer() {
               {clinvar ? (
                 <ClinvarResults data={clinvar} />
               ) : (
-                loading && <PendingPanel title="ClinVar" text="Searching ClinVar..." />
-              )}
-              {pubmed ? (
-                <ResultsList data={pubmed} />
-              ) : (
-                loading && <PendingPanel title="Literature" text="Searching PubMed and Europe PMC..." />
+                loading && (
+                  <section className="panel pending-panel" aria-label="ClinVar" role="status">
+                    <h2>ClinVar</h2>
+                    <p className="spinner">Searching ClinVar...</p>
+                  </section>
+                )
               )}
               <details className="forms">
                 <summary>All forms of this variant ({result.variants.length})</summary>
@@ -434,20 +407,11 @@ export function Explorer() {
           labs.icahn.mssm.edu/kuanhuanglab
         </a>
         ) · GitHub (
-        <a href="https://github.com/Huang-lab/VarCrawl" target="_blank" rel="noopener noreferrer">
-          github.com/Huang-lab/VarCrawl
+        <a href="https://github.com/Huang-lab/VCR" target="_blank" rel="noopener noreferrer">
+          github.com/Huang-lab/VCR
         </a>
         )
       </footer>
     </main>
-  );
-}
-
-function PendingPanel({ title, text }: { title: string; text: string }) {
-  return (
-    <section className="panel pending-panel" aria-label={title} role="status">
-      <h2>{title}</h2>
-      <p className="spinner">{text}</p>
-    </section>
   );
 }

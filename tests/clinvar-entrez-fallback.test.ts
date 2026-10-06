@@ -133,7 +133,7 @@ describe("searchClinvarForVariantsDetailed fallback path", () => {
 
     expect(res.records).toHaveLength(1);
     expect(res.records[0].accession).toBe("VCV000013961");
-    // No fallback `BRAF[gene] AND Val600Glu` call was issued — only the
+    // No fallback `BRAF[gene] AND Val600Glu` call was issued - only the
     // phrase path and the primary structured query ran.
     expect(esearchCalls.some((t) => t === "BRAF[gene] AND Val600Glu")).toBe(false);
   });

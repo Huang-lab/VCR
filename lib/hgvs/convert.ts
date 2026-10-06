@@ -8,12 +8,12 @@ import { AA1_TO_3, AA3_TO_1, Assembly, CanonicalVariant, ClassifiedInput, Conseq
  *   - Mutalyzer (/normalize/{hgvs}) for HGVS normalization/validation
  *   - NCBI Variation Services for RefSeq-aware HGVS parsing (fills VEP gaps)
  *
- * Each function is defensive — on failure, returns a partial result and the caller
+ * Each function is defensive - on failure, returns a partial result and the caller
  * merges what it can. No single API needs to succeed for the app to return something
  * useful.
  */
 
-const USER_AGENT = "VarCrawl/0.1 (https://labs.icahn.mssm.edu/kuanhuanglab/)";
+const USER_AGENT = "VCR/0.1 (https://labs.icahn.mssm.edu/kuanhuanglab/)";
 
 function vepBase(assembly: Assembly): string {
   if (assembly === "GRCh37") return "https://grch37.rest.ensembl.org";
@@ -241,7 +241,7 @@ export async function canonicalizeMultiAssembly(
   ]);
 
   if (primaryRes.status !== "fulfilled") {
-    // Propagate the primary failure — callers already handle empty canonical
+    // Propagate the primary failure - callers already handle empty canonical
     // variants via the fallback bucket in enumerateGrouped.
     throw primaryRes.reason;
   }
@@ -278,7 +278,7 @@ function buildVepInput(input: ClassifiedInput): string | null {
     case "hgvsp":
     case "hgvsn":
       if (input.accession) return `${input.accession}:${input.body}`;
-      // Gene-prefixed protein like BRAF:p.V600E — VEP accepts gene symbols for protein HGVS
+      // Gene-prefixed protein like BRAF:p.V600E - VEP accepts gene symbols for protein HGVS
       if (input.gene && /^p\./i.test(input.body)) return `${input.gene}:${input.body}`;
       return null;
     case "hgvsg":

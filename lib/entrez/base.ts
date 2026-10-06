@@ -1,5 +1,5 @@
 /**
- * Shared NCBI E-utilities helpers — used by PubMed and ClinVar clients.
+ * Shared NCBI E-utilities helpers - used by the ClinVar client.
  *
  * Every outbound call goes through a process-wide token-bucket limiter
  * (`lib/entrez/scheduler.ts`) rather than a hard-coded sleep between serial
@@ -65,13 +65,13 @@ export interface EsummaryBatchResult<T> {
 
 export function baseParams(cfg: EntrezConfig): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("tool", cfg.tool ?? "varcrawl");
+  params.set("tool", cfg.tool ?? "vcr");
   if (cfg.email) params.set("email", cfg.email);
   if (cfg.apiKey) params.set("api_key", cfg.apiKey);
   return params;
 }
 
-/** The limiter governing this credential class. Shared across PubMed + ClinVar. */
+/** The limiter governing this credential class. Shared across all Entrez searches. */
 export function limiterFor(cfg: EntrezConfig): RateLimiter {
   return entrezLimiter(!!cfg.apiKey);
 }
@@ -93,7 +93,7 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * How long to wait before retrying: the upstream `Retry-After` when it gives
- * one, else exponential backoff — clamped either way so a retry cannot outlast
+ * one, else exponential backoff - clamped either way so a retry cannot outlast
  * the function budget.
  */
 export function retryWaitMs(retryAfterHeader: string | null, attempt: number): number {
@@ -120,7 +120,7 @@ function networkFailureResponse(detail?: unknown): Response {
  *
  * The caller already holds a rate-limit token and concurrency slot for its
  * first attempt. Each *retry* is an additional request against the same quota,
- * so it waits for its own token via `acquireToken()` before going out —
+ * so it waits for its own token via `acquireToken()` before going out -
  * otherwise a burst of retries during an upstream wobble pushes the rate over
  * the limit precisely when NCBI is already unhappy. `acquireToken` deliberately
  * does not take a second concurrency slot, which would deadlock once every
@@ -206,7 +206,7 @@ async function readIdList(res: Response): Promise<EsearchPhraseResult> {
     };
   } catch {
     // A 200 with a truncated or non-JSON body is an upstream failure, not an
-    // empty result set — surfacing it keeps `likelyPartial` honest.
+    // empty result set - surfacing it keeps `likelyPartial` honest.
     return failedSearch(res.status);
   }
 }

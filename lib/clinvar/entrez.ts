@@ -92,7 +92,7 @@ export async function searchClinvarForVariantsDetailed(
    * like "BRAF V600E" (the 1-letter form rarely appears in indexed titles).
    * A structured query `BRAF[gene] AND (V600E OR Val600Glu OR "p.Val600Glu")`
    * mirrors how the ClinVar web UI resolves gene+variant queries and reliably
-   * returns records such as VCV000013961. Best-effort — failures are ignored.
+   * returns records such as VCV000013961. Best-effort - failures are ignored.
    */
   if (opts?.gene && opts.proteinForms && opts.proteinForms.length > 0) {
     const tag = `${opts.gene} ${shortestProteinForm(opts.proteinForms)}`;
@@ -233,7 +233,7 @@ async function elinkClinvarRecords(
 ): Promise<ClinvarRecord[]> {
   // 1. elink: dbSNP → ClinVar, one call per rsID so we can attribute matchedBy.
   //    These are independent, so they overlap. `entrezFetchText` takes its own
-  //    rate-limit slot, so plain Promise.all is what we want here — wrapping it
+  //    rate-limit slot, so plain Promise.all is what we want here - wrapping it
   //    in mapWithLimiter would hold an outer slot while waiting for an inner
   //    one and deadlock once the rsID count reached the concurrency ceiling.
   const xmls = await Promise.all(
@@ -430,7 +430,7 @@ export function buildGeneProteinQuery(gene: string, proteinForms: string[]): str
 /**
  * Build a prioritized list of simple structured ClinVar queries as a fallback
  * for when the big `AND (form OR form OR ...)` query fails to resolve. Each
- * term is a single `GENE[gene] AND TOKEN` pair — no quotes, no dots, no OR —
+ * term is a single `GENE[gene] AND TOKEN` pair - no quotes, no dots, no OR -
  * which NCBI's esearch parser handles reliably. 3-letter forms are preferred
  * because ClinVar's indexed record titles carry them (e.g. p.Val600Glu).
  *
@@ -445,7 +445,7 @@ export function buildGeneProteinQueries(gene: string, proteinForms: string[]): s
     if (!raw) continue;
     const bare = raw.trim().replace(/^p\./i, "");
     if (!bare) continue;
-    // Skip anything that would need quoting in the NCBI term — we want the
+    // Skip anything that would need quoting in the NCBI term - we want the
     // simplest possible token so the parser can't misinterpret it.
     if (!/^[A-Za-z0-9]+$/.test(bare)) continue;
     const key = bare.toLowerCase();
