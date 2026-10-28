@@ -1,9 +1,22 @@
 import type { AgePoint } from "@/lib/penetrance/types";
 import { formatPct, interpolateAges as interpolate } from "@/lib/penetrance/stats";
+import { useElementWidth } from "./useElementWidth";
 
-const W = 640;
-const H = 240;
+const MIN_W = 280;
+const MAX_W = 720;
 const M = { top: 14, right: 16, bottom: 34, left: 44 };
+
+/**
+ * Drawing width for a chart in a container `width` px wide. One SVG unit is then
+ * about one screen pixel, so text keeps its size instead of shrinking with the
+ * container the way it does in a fixed-width viewBox.
+ */
+export const chartWidth = (width: number) => Math.min(MAX_W, Math.max(MIN_W, width));
+
+export interface ChartThreshold {
+  pct: number;
+  label: string;
+}
 
 interface Props {
   points: AgePoint[];
@@ -11,6 +24,8 @@ interface Props {
   onAge: (age: number) => void;
   /** General-population rate to draw as a reference line, when known. */
   baseline?: { pct: number; label: string };
+  /** Screening or action levels to draw as reference lines. */
+  thresholds?: ChartThreshold[];
   synthetic?: boolean;
 }
 
@@ -20,10 +35,13 @@ export function niceMax(v: number): number {
   return steps.find((s) => s >= v * 1.05) ?? 100;
 }
 
-export function AgeChart({ points, age, onAge, baseline, synthetic }: Props) {
+export function AgeChart({ points, age, onAge, baseline, thresholds = [], synthetic }: Props) {
+  const [ref, width] = useElementWidth<HTMLElement>(640);
+  const W = chartWidth(width);
+  const H = W < 480 ? 200 : 240;
   const minAge = points[0].age;
   const maxAge = points[points.length - 1].age;
-  const yMax = niceMax(Math.max(baseline?.pct ?? 0, ...points.map((p) => p.pct)));
+  const yMax = niceMax(Math.max(baseline?.pct ?? 0, ...thresholds.map((t) => t.pct), ...points.map((p) => p.pct)));
   const x = (a: number) => M.left + ((a - minAge) / Math.max(1, maxAge - minAge)) * (W - M.left - M.right);
   const y = (v: number) => H - M.bottom - (v / yMax) * (H - M.top - M.bottom);
   const path = points.map((p, i) => `${i ? "L" : "M"}${x(p.age).toFixed(1)},${y(p.pct).toFixed(1)}`).join(" ");
@@ -31,7 +49,7 @@ export function AgeChart({ points, age, onAge, baseline, synthetic }: Props) {
   const xTicks = points.map((p) => p.age).filter((a) => a % 10 === 0);
 
   return (
-    <figure className="age-chart">
+    <figure ref={ref} className="age-chart">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
@@ -62,9 +80,18 @@ export function AgeChart({ points, age, onAge, baseline, synthetic }: Props) {
         {baseline && (
           <line className="series series-baseline" x1={M.left} x2={W - M.right} y1={y(baseline.pct)} y2={y(baseline.pct)} />
         )}
+        {thresholds.map((t) => (
+          <line key={t.label} className="series series-threshold" x1={M.left} x2={W - M.right} y1={y(t.pct)} y2={y(t.pct)} />
+        ))}
         <path className="series series-carrier" d={path} />
         <line className="age-marker" x1={x(age)} x2={x(age)} y1={M.top} y2={H - M.bottom} />
         <circle className="dot dot-carrier" cx={x(age)} cy={y(interpolate(points, age))} r={5} />
+        {/* Labels last, with a halo, so the curve passing behind one does not cut through its text. */}
+        {thresholds.map((t) => (
+          <text key={t.label} className="threshold-label" x={W - M.right} y={y(t.pct) - 6} textAnchor="end">
+            {t.label} ({formatPct(t.pct)})
+          </text>
+        ))}
       </svg>
       <figcaption className="legend">
         <span className="legend-item tone-carrier">
@@ -75,6 +102,11 @@ export function AgeChart({ points, age, onAge, baseline, synthetic }: Props) {
             <i aria-hidden="true" /> {baseline.label}: {formatPct(baseline.pct)}
           </span>
         )}
+        {thresholds.map((t) => (
+          <span className="legend-item tone-threshold" key={t.label}>
+            <i aria-hidden="true" /> {t.label} threshold: {formatPct(t.pct)}
+          </span>
+        ))}
       </figcaption>
     </figure>
   );

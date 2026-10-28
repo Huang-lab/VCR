@@ -1,6 +1,7 @@
 "use client";
 
 import type { Assembly } from "@/lib/hgvs/types";
+import { EXAMPLE_GROUPS } from "@/lib/penetrance/examples";
 
 interface Props {
   /**
@@ -18,18 +19,6 @@ interface Props {
   onSearch: (query: string, assembly: Assembly) => void;
   disabled: boolean;
 }
-
-// Every example has penetrance data in the bundled eTable 4, across several conditions.
-const EXAMPLES = [
-  "ABCA4 p.G1961E",
-  "GCGR p.G40S",
-  "TP53 p.R175H",
-  "BRCA2 p.E1308K",
-  "LDLR p.R633C",
-  "CFH p.R1210C",
-  "APOE p.E31K",
-  "AR p.A871E",
-];
 
 export function SearchForm({
   query,
@@ -77,25 +66,31 @@ export function SearchForm({
           )}
         </button>
       </form>
-      <p className="examples">
-        Try:{" "}
-        {EXAMPLES.map((ex, i) => (
-          <span key={ex}>
-            {i > 0 && " "}
-            <button
-              type="button"
-              className="example-chip"
-              disabled={disabled}
-              onClick={() => {
-                onQueryChange(ex);
-                onSearch(ex, assembly);
-              }}
-            >
-              {ex}
-            </button>
-          </span>
+      <div className="examples" role="group" aria-label="Cancer examples">
+        <span className="example-lead">Try a cancer example, grouped by risk compared with the general population:</span>
+        {EXAMPLE_GROUPS.map((group) => (
+          <div className="example-group" key={group.tier}>
+            <span className="example-label">{group.label}</span>
+            <span className="example-chips">
+              {group.examples.map((ex) => (
+                <button
+                  key={ex.query}
+                  type="button"
+                  className="example-chip"
+                  disabled={disabled}
+                  onClick={() => {
+                    onQueryChange(ex.query);
+                    onSearch(ex.query, assembly);
+                  }}
+                >
+                  {ex.query}
+                  <span className="example-cancer">{ex.cancer}</span>
+                </button>
+              ))}
+            </span>
+          </div>
         ))}
-      </p>
+      </div>
     </>
   );
 }

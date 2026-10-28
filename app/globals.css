@@ -32,6 +32,7 @@
   --pen-carrier: #1d4ed8;
   --pen-baseline: #64748b;
   --pen-empty: #cbd5e1;
+  --pen-threshold: #b45309;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -69,6 +70,7 @@
     --pen-carrier: #7ca3ff;
     --pen-baseline: #a3b0c8;
     --pen-empty: #34456f;
+    --pen-threshold: #fbbf24;
   }
 }
 
@@ -379,7 +381,15 @@ code:focus-visible {
   cursor: pointer;
 }
 .form { margin-bottom: 8px; }
-.examples { margin-bottom: 12px; line-height: 2; }
+.examples { margin-bottom: 12px; display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 6px 14px; }
+.example-lead { grid-column: 1 / -1; }
+.example-group { display: contents; }
+.example-label { font-size: 12px; font-weight: 600; }
+.example-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+@media (max-width: 640px) {
+  .examples { grid-template-columns: 1fr; gap: 4px; }
+  .example-label { margin-top: 6px; }
+}
 .example-chip {
   background: var(--panel-2);
   color: var(--text);
@@ -390,14 +400,22 @@ code:focus-visible {
   font-size: 13px;
   cursor: pointer;
 }
-.example-chip:hover { color: var(--accent); }
+.example-chip:hover:not(:disabled) { color: var(--accent); }
+.example-chip:disabled { cursor: not-allowed; opacity: 0.6; }
+.example-cancer { margin-left: 6px; font-family: inherit; font-size: 11px; color: var(--muted); }
 .site-footer { margin-top: 32px; color: var(--muted); font-size: 13px; }
 
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); flex-wrap: wrap; }
 .seg button { padding: 5px 12px; background: transparent; color: var(--text); border: 0; border-right: 1px solid var(--border); font-size: 13px; cursor: pointer; }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent); color: var(--button-fg); font-weight: 600; }
-.link-button { background: transparent; border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+/* On a phone the options stack as a list instead of wrapping into a half-empty box. */
+@media (max-width: 560px) {
+  .seg { display: flex; flex-direction: column; width: 100%; }
+  .seg button { border-right: 0; border-bottom: 1px solid var(--border); text-align: left; }
+  .seg button:last-child { border-bottom: 0; }
+}
+.link-button { background: transparent; border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .link-button:hover { background: var(--panel-2); }
 
 .summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -420,6 +438,7 @@ code:focus-visible {
 .pen-body { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
 .pen-summary { margin: 0 0 8px; font-size: 15px; line-height: 1.5; }
 .pen-verdict { margin: 0 0 14px; padding: 8px 12px; font-size: 14px; border-left: 4px solid var(--border); background: var(--panel-2); border-radius: 0 6px 6px 0; }
+.pen-threshold { margin: -6px 0 14px; padding: 8px 12px; font-size: 14px; border-left: 4px solid var(--pen-threshold); background: var(--panel-2); border-radius: 0 6px 6px 0; }
 .pen-groups { display: flex; flex-wrap: wrap; gap: 24px; }
 .pen-help { margin-top: 14px; font-size: 13px; color: var(--muted); }
 .pen-help > summary { cursor: pointer; padding: 4px 0; }
@@ -450,12 +469,15 @@ code:focus-visible {
 .age-chart .series { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .age-chart .series-carrier { stroke: var(--pen-carrier); }
 .age-chart .series-baseline { stroke: var(--pen-baseline); stroke-dasharray: 6 4; stroke-width: 2; }
+.age-chart .series-threshold { stroke: var(--pen-threshold); stroke-dasharray: 2 4; stroke-width: 2; }
+.age-chart .threshold-label { fill: var(--pen-threshold); font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
 .age-chart .age-marker { stroke: var(--muted); stroke-dasharray: 3 3; }
 .age-chart .dot-carrier { fill: var(--pen-carrier); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin-top: 4px; }
 .legend-item i { display: inline-block; width: 18px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 4px; }
 .legend-item.tone-carrier i { border-color: var(--pen-carrier); }
 .legend-item.tone-baseline i { border-color: var(--pen-baseline); border-top-style: dashed; }
+.legend-item.tone-threshold i { border-color: var(--pen-threshold); border-top-style: dotted; }
 
 @media (max-width: 760px) {
   .pen-body { gap: 16px; }
@@ -487,6 +509,8 @@ code:focus-visible {
 
 .lifetime-chart svg { cursor: default; }
 .lifetime-chart .row-label { fill: var(--text); font-size: 13px; }
+/* Halo in the card colour, so a threshold line behind a stacked label does not cut through the text. */
+.lifetime-chart .row-label-stacked { paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
 .lifetime-chart .bar-carrier { fill: var(--pen-carrier); }
 .lifetime-chart .bar-baseline { fill: var(--pen-baseline); }
 .lifetime-chart .whisker { stroke: var(--text); stroke-width: 1.5; }

@@ -138,7 +138,8 @@ function shortProtein(s: string): Partial<ClassifiedInput> {
     if (/^fs/i.test(alt) || /^(del|dup|ins)/i.test(alt) || alt === "=") {
       alt1 = alt;
       alt3 = alt;
-    } else if (alt === "*") {
+    } else if (alt === "*" || alt.toUpperCase() === "X") {
+      // "X" is how nonsense variants are usually written in practice (E1308X, Q251X).
       alt1 = "*";
       alt3 = "Ter";
     } else {

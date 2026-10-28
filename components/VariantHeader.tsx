@@ -10,14 +10,16 @@ interface Props {
 
 /** Names the variant the way people say it: gene + protein change first, identifiers beneath. */
 export function VariantHeader({ query, headline: h, resolving, failed }: Props) {
-  const main = h?.proteinShort ?? h?.protein ?? h?.cdna ?? h?.rsid ?? query;
+  const resolved = h?.proteinShort ?? h?.protein ?? h?.cdna ?? h?.rsid;
+  const main = resolved ?? query;
   const longForm = h?.proteinShort ? h.protein : undefined;
   const meta = [longForm, h?.rsid, h?.protein ? h.cdna : undefined, h?.genomic].filter(Boolean) as string[];
 
   return (
     <section className="variant-head" aria-label="Variant">
       <h2 className="vh-title">
-        {h?.gene && <span className="vh-gene">{h.gene}</span>}
+        {/* Unresolved, the title is the query as typed, which already names the gene. */}
+        {h?.gene && resolved && <span className="vh-gene">{h.gene}</span>}
         <span className="vh-protein">{main}</span>
         {h?.consequence && <span className="consequence-pill">{h.consequence}</span>}
       </h2>

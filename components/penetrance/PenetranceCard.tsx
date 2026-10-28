@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { baselineFor } from "@/lib/penetrance/baseline";
+import { hasRiskLevel, thresholdsFor } from "@/lib/penetrance/thresholds";
 import {
   compareToBaseline,
   formatPct,
@@ -15,6 +16,7 @@ import type { PenetranceRecord } from "@/lib/penetrance/types";
 import { AgeChart } from "./AgeChart";
 import { LifetimeChart } from "./LifetimeChart";
 import { PeopleGrid } from "./PeopleGrid";
+import { ThresholdNote } from "./ThresholdNote";
 
 const LOW_N = 30;
 
@@ -41,10 +43,14 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
   const best = records.find((r) => r.affected > 0) ?? records[0];
   const [selectedId, setSelectedId] = useState(best.id);
   const [ageChoice, setAgeChoice] = useState<number | null>(null);
+  // Start over only when the variant's conditions change. Keyed by content, not by
+  // the array: a parent that rebuilds an equal list (for example when ClinVar
+  // arrives) must not undo what the reader has picked.
+  const recordsKey = records.map((r) => r.id).join("|");
   useEffect(() => {
     setSelectedId(best.id);
     setAgeChoice(null);
-  }, [best.id, records]);
+  }, [best.id, recordsKey]);
 
   const rec = records.find((r) => r.id === selectedId) ?? best;
   const maxAge = rec.ages ? rec.ages[rec.ages.length - 1].age : 0;
@@ -61,6 +67,13 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
   const comparable = age === undefined || age >= maxAge;
   const comparison = baseline && comparable ? compareToBaseline(pct, ci, baseline.pct) : undefined;
   const baselineLabel = baseline ? `General population ${baseline.kind}` : "";
+
+  // Screening and action levels are lifetime figures too, so they share the baseline's `comparable` rule.
+  const thresholds = thresholdsFor(rec.disease);
+  const chartThresholds = thresholds.filter(hasRiskLevel).map(({ pct, label }) => ({ pct, label }));
+  const lifetimeOnly = [baseline && "general-population rate", chartThresholds.length > 0 && "screening threshold"].filter(
+    (name): name is string => !!name,
+  );
 
   return (
     <section className="panel pen-card" aria-label="Penetrance">
@@ -125,11 +138,16 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
           </span>
         </p>
       )}
-      {baseline && !comparable && (
+      {!comparable && lifetimeOnly.length > 0 && (
         <p className="muted-small">
-          The general-population rate is a lifetime or overall figure, so it is compared only at the oldest age.
+          The {lifetimeOnly.join(" and ")}{" "}
+          {lifetimeOnly.length > 1 ? "are lifetime or overall figures, so they are" : "is a lifetime or overall figure, so it is"}{" "}
+          compared only at the oldest age.
         </p>
       )}
+      {thresholds.map((t) => (
+        <ThresholdNote key={t.label} threshold={t} pct={pct} ci={ci} comparable={comparable} />
+      ))}
       {!baseline && (
         <p className="muted-small">No general-population rate is on file for this disease, so there is nothing to compare against.</p>
       )}
@@ -197,6 +215,7 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
                 age={age}
                 onAge={setAgeChoice}
                 baseline={baseline && { pct: baseline.pct, label: baselineLabel }}
+                thresholds={chartThresholds}
                 synthetic={synthetic}
               />
             </>
@@ -207,6 +226,7 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
                   { key: "carrier", label: "People with this variant", pct, low: ci.low, high: ci.high },
                   ...(baseline ? [{ key: "baseline" as const, label: "General population", pct: baseline.pct }] : []),
                 ]}
+                thresholds={chartThresholds}
               />
               <p className="muted-small">
                 Lifetime penetrance only. The whisker is the 95% range. Load age-specific data (a CSV with an Age
@@ -237,6 +257,13 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
             carriers, so differences in age, sex, and ancestry can shift the comparison. Use it for orientation, not
             as a risk calculator.
           </li>
+          {thresholds.length > 0 && (
+            <li>
+              <strong>Screening threshold</strong> is a guideline level at which extra screening or another action is
+              advised. Guidelines apply it to one person&apos;s estimated risk, often from family-history models, so
+              here it is a reference point, not advice for a patient.
+            </li>
+          )}
         </ul>
       </details>
       {footer}

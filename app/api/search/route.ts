@@ -33,7 +33,15 @@ const COMPLETE_TTL_SEC = 3600 * 6;
  */
 const INCOMPLETE_TTL_SEC = 60;
 
-/** Budget for starting phrase searches; the rest of the 60s covers summaries and the response. */
+/**
+ * Budget, counted from the start of the request, for starting phrase searches.
+ * The rest of the 60s covers a phrase search already in flight (up to the Entrez
+ * timeout), the summaries (the same again) and the response.
+ *
+ * Counting from the start matters: the variant lookup before ClinVar can be slow,
+ * and a deadline set after it would push the whole request past the platform
+ * limit. This way a slow lookup shortens the ClinVar window instead.
+ */
 const SOFT_DEADLINE_MS = Number(process.env.SEARCH_SOFT_DEADLINE_MS) || 30_000;
 
 /**
@@ -72,6 +80,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleSearch(req: NextRequest) {
+  const startedAt = Date.now();
   const rl = await checkRateLimit(req);
   if (rl && !rl.success) {
     return NextResponse.json(
@@ -118,7 +127,7 @@ async function handleSearch(req: NextRequest) {
   const plan = await planSearch(query, assembly, classified);
   // Stop starting new phrase searches well before the function limit, leaving
   // time to fetch summaries and send what was found.
-  const cfg = { ...entrezConfigFromEnv(), deadline: Date.now() + SOFT_DEADLINE_MS };
+  const cfg = { ...entrezConfigFromEnv(), deadline: startedAt + SOFT_DEADLINE_MS };
 
   // allSettled, not all: a ClinVar failure must not discard the expansion we
   // already computed.
