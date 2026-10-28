@@ -41,10 +41,14 @@ export function PenetranceCard({ records, matchedBy, synthetic, footer }: Props)
   const best = records.find((r) => r.affected > 0) ?? records[0];
   const [selectedId, setSelectedId] = useState(best.id);
   const [ageChoice, setAgeChoice] = useState<number | null>(null);
+  // Start over only when the variant's conditions change. Keyed by content, not by
+  // the array: a parent that rebuilds an equal list (for example when ClinVar
+  // arrives) must not undo what the reader has picked.
+  const recordsKey = records.map((r) => r.id).join("|");
   useEffect(() => {
     setSelectedId(best.id);
     setAgeChoice(null);
-  }, [best.id, records]);
+  }, [best.id, recordsKey]);
 
   const rec = records.find((r) => r.id === selectedId) ?? best;
   const maxAge = rec.ages ? rec.ages[rec.ages.length - 1].age : 0;

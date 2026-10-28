@@ -1,3 +1,4 @@
+import { envNumber } from "@/lib/entrez/scheduler";
 import { AA1_TO_3, AA3_TO_1, Assembly, CanonicalVariant, ClassifiedInput, Consequence } from "./types";
 
 /**
@@ -15,27 +16,68 @@ import { AA1_TO_3, AA3_TO_1, Assembly, CanonicalVariant, ClassifiedInput, Conseq
 
 const USER_AGENT = "VCR/0.1 (https://labs.icahn.mssm.edu/kuanhuanglab/)";
 
+/**
+ * Longest a single resolver call may take in total, retry included. Ensembl
+ * sometimes accepts a request and never answers (seen for some protein-level
+ * queries), and without a limit the search would sit there until the platform
+ * killed the function and the user got no result at all. A call that runs out of
+ * time returns null like any other failure, so the search carries on with what
+ * it has.
+ *
+ * Twenty seconds: lookups were seen taking 10 to 56 seconds, or failing with a
+ * 5xx, in a slow period when most took under two seconds, and the next try of the
+ * same lookup usually came back fast. A longer wait would eat the time ClinVar
+ * needs inside the function budget (see SOFT_DEADLINE_MS in the search route).
+ */
+const REQUEST_TIMEOUT_MS = envNumber("ENSEMBL_TIMEOUT_MS", 20000);
+
+/** Share of the budget the first try may use, so a try that hangs still leaves time for a second. */
+const FIRST_TRY_SHARE = 0.4;
+
 function vepBase(assembly: Assembly): string {
   if (assembly === "GRCh37") return "https://grch37.rest.ensembl.org";
   // GRCh38 and T2T both use the main REST endpoint (T2T is a best-effort remap below)
   return "https://rest.ensembl.org";
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
+type Attempt<T> = { done: true; value: T | null } | { done: false };
+
+/**
+ * One try. `done: false` means the failure looks transient (a timeout, a network
+ * error or a 5xx), so trying again may work. A 4xx, including a rate limit, will
+ * not change on a second ask and a retry would only add load.
+ */
+async function attempt<T>(url: string, init: RequestInit | undefined, timeoutMs: number): Promise<Attempt<T>> {
   try {
     const res = await fetch(url, {
       ...init,
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         "Accept": "application/json",
         "User-Agent": USER_AGENT,
         ...(init?.headers ?? {}),
       },
     });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    if (res.status >= 500) return { done: false };
+    if (!res.ok) return { done: true, value: null };
+    return { done: true, value: (await res.json()) as T };
   } catch {
-    return null;
+    return { done: false };
   }
+}
+
+/**
+ * GET JSON from a resolver, with at most one retry of a transient failure, inside
+ * `totalMs` overall. Returns null when it cannot get an answer in time.
+ */
+export async function fetchJson<T>(url: string, init?: RequestInit, totalMs = REQUEST_TIMEOUT_MS): Promise<T | null> {
+  const deadline = Date.now() + totalMs;
+  const first = await attempt<T>(url, init, Math.round(totalMs * FIRST_TRY_SHARE));
+  if (first.done) return first.value;
+  const left = deadline - Date.now();
+  if (left <= 0) return null;
+  const second = await attempt<T>(url, init, left);
+  return second.done ? second.value : null;
 }
 
 // ---------- Ensembl VEP ----------
@@ -66,6 +108,8 @@ interface VepResult {
   seq_region_name?: string;
   start?: number;
   end?: number;
+  /** Strand `allele_string` is written on: -1 for an HGVS name against a reverse-strand transcript. */
+  strand?: number;
   allele_string?: string; // "T/A"
   id?: string;
   colocated_variants?: VepColocated[];
@@ -126,6 +170,35 @@ export async function dbsnpRsToVariant(rsid: string, assembly: Assembly): Promis
   return arr[0];
 }
 
+// ---------- Strand ----------
+
+const COMPLEMENT: Record<string, string> = { A: "T", C: "G", G: "C", T: "A", N: "N", "-": "-" };
+
+/** Reverse complement of a nucleotide string. "-" (an empty allele) stays "-". */
+export function reverseComplement(seq: string): string {
+  return [...seq.toUpperCase()]
+    .reverse()
+    .map((base) => COMPLEMENT[base] ?? base)
+    .join("");
+}
+
+/**
+ * Reference and alternate allele from VEP's "REF/ALT", on the forward strand.
+ *
+ * VEP writes `allele_string` on the strand of the input. For an HGVS name
+ * written against a reverse-strand transcript (CHEK2, BRCA1, TP53, ...) that is
+ * -1, so the alleles are the complement of what the genome reference holds.
+ * HGVSg and the penetrance lookup both use the forward strand.
+ */
+export function forwardStrandAlleles(
+  alleleString: string,
+  strand: number | undefined,
+): { ref: string; alt: string } | undefined {
+  const [ref, alt] = alleleString.split("/");
+  if (!ref || !alt) return undefined;
+  return strand === -1 ? { ref: reverseComplement(ref), alt: reverseComplement(alt) } : { ref, alt };
+}
+
 // ---------- Canonicalization orchestrator ----------
 
 /**
@@ -160,10 +233,10 @@ export async function canonicalize(
   if (vep) {
     if (vep.seq_region_name) chrom = vep.seq_region_name;
     if (typeof vep.start === "number") genomicPos = vep.start;
-    if (vep.allele_string && vep.allele_string.includes("/")) {
-      const [ref, alt] = vep.allele_string.split("/");
-      refAllele = ref;
-      altAllele = alt;
+    const alleles = vep.allele_string ? forwardStrandAlleles(vep.allele_string, vep.strand) : undefined;
+    if (alleles) {
+      refAllele = alleles.ref;
+      altAllele = alleles.alt;
     }
     const rsCo = vep.colocated_variants?.find((c) => c.id?.startsWith("rs"));
     if (rsCo?.id) rsid = rsCo.id;

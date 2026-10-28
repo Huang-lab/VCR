@@ -79,6 +79,20 @@ describe("classify", () => {
     expect(r.body).toBe("rs113488022");
   });
 
+  it("reads X as a stop codon, the way nonsense variants are usually written", () => {
+    for (const q of ["BRCA2 p.E97X", "BRCA2 E97x", "E97X"]) {
+      const r = classify(q);
+      expect(r.proteinShort, q).toBe("E97*");
+      expect(r.proteinLong, q).toBe("p.Glu97Ter");
+    }
+    expect(classify("BRCA2 p.E97X").kind).toBe("hgvsp");
+    expect(classify("BRCA2 p.E97X").gene).toBe("BRCA2");
+  });
+
+  it("does not read X as a residue before the position", () => {
+    expect(classify("X97E").proteinShort).toBeUndefined();
+  });
+
   it("recognizes stop-gain short form", () => {
     const r = classify("R175*");
     expect(r.kind).toBe("short");

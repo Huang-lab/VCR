@@ -11,7 +11,7 @@ import { PenetranceCard } from "@/components/penetrance/PenetranceCard";
 import { useDatasets } from "@/components/penetrance/useDatasets";
 import { topSignificance } from "@/lib/clinvar/significance";
 import type { Assembly } from "@/lib/hgvs/types";
-import { findRecords, parseLocus } from "@/lib/penetrance/lookup";
+import { findRecords, lookupKeys } from "@/lib/penetrance/lookup";
 import { baselineFor } from "@/lib/penetrance/baseline";
 import { formatPct, formatRate } from "@/lib/penetrance/stats";
 import { pickHeadline } from "@/lib/variant/headline";
@@ -54,6 +54,8 @@ interface ExpandPart {
     gene?: string;
     rsid?: string;
     hgvsg?: string;
+    /** The same variant on the other genome build, when the server could resolve it. */
+    altAssemblyCoords?: { hgvsg?: string };
     notes: string[];
     consequences: {
       gene?: string;
@@ -285,20 +287,39 @@ export function Explorer() {
 
   // Penetrance can often be matched from the typed rsID or locus before the
   // server has answered; the resolved variant refines or supplies the match.
-  const penetrance = useMemo(() => {
-    if (!submitted || !data.dataset) return null;
-    const q = submitted.query.trim();
-    const rsid = /^rs\d+$/i.test(q) ? q : result?.canonical.rsid;
-    const locus =
-      submitted.assembly === "GRCh38" ? (parseLocus(q) ?? parseLocus(result?.canonical.hgvsg)) : undefined;
-    return findRecords(data.dataset.records, { rsid, locus });
-  }, [submitted, result, data.dataset]);
+  //
+  // The memo depends on the resolved strings rather than on `result`. `result`
+  // is a new object each time ClinVar arrives, and a new match list would reset
+  // the card to its default condition just as the user was reading it.
+  const kind = result?.classified.kind;
+  const resolvedRsid = result?.canonical.rsid;
+  const resolvedHgvsg = result?.canonical.hgvsg;
+  const altAssemblyHgvsg = result?.canonical.altAssemblyCoords?.hgvsg;
+  const keys = useMemo(
+    () =>
+      submitted
+        ? lookupKeys(submitted.query, submitted.assembly, {
+            kind,
+            rsid: resolvedRsid,
+            hgvsg: resolvedHgvsg,
+            altAssemblyHgvsg,
+          })
+        : null,
+    [submitted, kind, resolvedRsid, resolvedHgvsg, altAssemblyHgvsg],
+  );
+  const penetrance = useMemo(
+    () => (keys && data.dataset ? findRecords(data.dataset.records, keys) : null),
+    [keys, data.dataset],
+  );
 
   const topSig = clinvar ? topSignificance(clinvar.records) : undefined;
   const top = penetrance?.matches.find((r) => r.affected > 0) ?? penetrance?.matches[0];
   const topBaseline = top ? baselineFor(top.disease) : undefined;
   // A miss is only final once the dataset is loaded and the variant has been resolved.
   const penetranceChecking = !data.dataset || (loading && !result);
+  // The server answered but the variant has no rsID or position (Ensembl timed out or did not
+  // recognise it), so the dataset was never asked: that is not the same as "no data".
+  const unresolved = !!result && !!keys && !keys.rsid && !keys.locus;
   const failed = !loading && !result && !!error;
 
   return (
@@ -333,12 +354,16 @@ export function Explorer() {
             <div className="tile">
               <span className="tile-label">Penetrance</span>
               <strong className="tile-value">
-                {top ? formatPct(top.pct) : penetranceChecking ? "Checking..." : "No data"}
+                {top ? formatPct(top.pct) : penetranceChecking ? "Checking..." : unresolved ? "Unavailable" : "No data"}
               </strong>
               <span className="tile-sub">
                 {top
                   ? `${top.disease}${topBaseline ? ` (general population ${formatRate(topBaseline.pct)})` : ""}`
-                  : penetranceChecking ? "Looking up the variant" : "Not in the selected dataset"}
+                  : penetranceChecking
+                    ? "Looking up the variant"
+                    : unresolved
+                      ? "Could not resolve the variant"
+                      : "Not in the selected dataset"}
               </span>
             </div>
             <div className={`tile${clinvar || !loading ? "" : " pending"}`}>
@@ -364,10 +389,35 @@ export function Explorer() {
           ) : penetranceChecking ? null : (
             <section className="panel" aria-label="Penetrance">
               <h2>Penetrance</h2>
-              <p className="muted-text">
-                No penetrance data for this variant in {data.dataset?.label ?? "the selected dataset"}.
-                Matching uses the rsID, or the GRCh38 position.
-              </p>
+              {unresolved ? (
+                <>
+                  <p className="muted-text">
+                    The variant could not be resolved, because Ensembl did not answer in time or did not recognise
+                    it, so it was not looked up in {data.dataset?.label ?? "the selected dataset"}. Search again, or
+                    try an rsID or a GRCh38 position.
+                  </p>
+                  {/* Not disabled while ClinVar loads: a new search cancels the running one. The URL already names this search. */}
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => submitted && void runSearch(submitted.query, submitted.assembly, { updateUrl: false })}
+                  >
+                    Search again
+                  </button>
+                </>
+              ) : (
+                <p className="muted-text">
+                  No penetrance data for this variant in {data.dataset?.label ?? "the selected dataset"}.
+                  Matching uses the rsID, or the GRCh38 position.
+                </p>
+              )}
+              {penetrance?.otherAlleles && (
+                <p className="muted-text">
+                  The dataset does have a different change at this position (
+                  {[...new Set(penetrance.otherAlleles.map((r) => `chr${r.chr}:${r.pos} ${r.ref}>${r.alt}`))].join(", ")}
+                  ). It shares the rsID but is not the variant you searched, so it is not shown.
+                </p>
+              )}
               <DataSource data={data} />
             </section>
           )}
