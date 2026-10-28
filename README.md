@@ -69,6 +69,28 @@ Read these comparisons with care:
 - Base rates are lifetime or overall figures, so they are compared only at the lifetime (oldest age) view.
 - The values were entered by hand and should be checked against the cited sources before any clinical use.
 
+### Screening thresholds
+
+Where guidelines set a lifetime-risk level for extra screening or another action, the card draws it as a reference line and says whether the carriers' 95% range sits above or below it (`lib/penetrance/thresholds.ts`).
+
+- **Breast cancer**: 20% lifetime risk, the level at which ACS (2007), ACR and NCCN advise adding a yearly breast MRI to mammography.
+- **Prostate cancer**: guidelines tie screening to specific genes, family history and ancestry rather than to a risk level.
+  The card shows NCCN's gene-based advice (PSA screening from age 40 for BRCA2 carriers) as text and draws no line.
+
+As with base rates, "above" or "below" is only claimed when the level falls outside the carriers' 95% range.
+The comparison is made only at the lifetime (oldest age) view.
+These levels are meant for one person's estimated lifetime risk, usually from family-history models, so the card calls the comparison a rough guide.
+The values were entered by hand and should be checked against the current guidelines before any clinical use.
+
+### Examples
+
+The search box offers four cancer examples, in two groups by how far carriers sit above the general-population rate in eTable 4.
+"Much higher risk" is 4 times the base rate or more, and "Moderately higher risk" is 2 to 4 times.
+Each example is one where the card says "Above the published general-population rate".
+Most variants in eTable 4 have few carriers (these examples have 2 to 12), so the card flags small counts.
+The examples live in `lib/penetrance/examples.ts`, and `tests/examples.test.ts` checks each one against the bundled CSV.
+Stop-gains that two different substitutions can produce (`BRCA2 p.L809*`, `p.Y1655*` and `p.Y3098*`) are left out, because Ensembl VEP timed out on them repeatedly when the list was chosen.
+
 ### Data
 
 Data is bundled in `public/data/etable4_penetrance.csv`, from eTable 4 of the JAMA article at <https://jamanetwork.com/journals/jama/fullarticle/2788347> (lifetime penetrance, all ages).
@@ -158,7 +180,7 @@ Passing `gene` and `proteinForms` filters out off-target records.
 npm test
 ```
 
-Vitest covers the input classifier, the variant enumerator, search-term construction, ClinVar querying and filtering, penetrance parsing, statistics and base rates, exact-allele matching, the Ensembl timeout and retry, VEP strand handling, CSV export, the cache wrapper, the rate limiter, and a throughput test that asserts both the latency budget and rate compliance against a simulated upstream.
+Vitest covers the input classifier, the variant enumerator, search-term construction, ClinVar querying and filtering, penetrance parsing, statistics and base rates, screening thresholds, the cancer example set (checked against the bundled CSV), exact-allele matching, the Ensembl timeout and retry, VEP strand handling, CSV export, the cache wrapper, the rate limiter, and a throughput test that asserts both the latency budget and rate compliance against a simulated upstream.
 
 `lib/hgvs/convert.ts` still depends on live Ensembl VEP and is exercised manually.
 
