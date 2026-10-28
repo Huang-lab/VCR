@@ -127,6 +127,10 @@ type StreamEvent =
 
 const keyOf = (s: Submitted) => `${s.assembly}|${s.query}`;
 
+/** Lets "Pathogenic/Likely pathogenic" wrap after the slash on a narrow tile, not in the middle of a word. */
+const wrapAfterSlash = (label: string) =>
+  label.split("/").flatMap((part, i) => (i === 0 ? [part] : ["/", <wbr key={i} />, part]));
+
 export function Explorer() {
   const [submitted, setSubmitted] = useState<Submitted | null>(null);
   // The response is stored with the request it answers, so a result is never
@@ -369,7 +373,7 @@ export function Explorer() {
             <div className={`tile${clinvar || !loading ? "" : " pending"}`}>
               <span className="tile-label">ClinVar</span>
               {topSig ? (
-                <strong className="tile-value"><span className={`sig-badge ${topSig.cls}`}>{topSig.label}</span></strong>
+                <strong className="tile-value"><span className={`sig-badge ${topSig.cls}`}>{wrapAfterSlash(topSig.label)}</span></strong>
               ) : (
                 <strong className="tile-value">{clinvar ? "No records" : loading ? "Searching..." : "Unavailable"}</strong>
               )}

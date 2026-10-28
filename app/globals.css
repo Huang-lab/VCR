@@ -409,7 +409,13 @@ code:focus-visible {
 .seg button { padding: 5px 12px; background: transparent; color: var(--text); border: 0; border-right: 1px solid var(--border); font-size: 13px; cursor: pointer; }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent); color: var(--button-fg); font-weight: 600; }
-.link-button { background: transparent; border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+/* On a phone the options stack as a list instead of wrapping into a half-empty box. */
+@media (max-width: 560px) {
+  .seg { display: flex; flex-direction: column; width: 100%; }
+  .seg button { border-right: 0; border-bottom: 1px solid var(--border); text-align: left; }
+  .seg button:last-child { border-bottom: 0; }
+}
+.link-button { background: transparent; border: 1px solid var(--border); color: var(--accent); border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .link-button:hover { background: var(--panel-2); }
 
 .summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
